@@ -5,6 +5,9 @@ import {
   WKApp,
   ThemeMode,
 } from "@tsdaodao/base";
+import {
+  ChannelTypePerson,
+} from "wukongimjssdk";
 import React from "react";
 import ReactDOM from "react-dom";
 import Blacklist from "./Blacklist";
@@ -111,8 +114,11 @@ export default class ContactsModule implements IModule {
       "contacts.organizational.group.add",
       (param) => {
         const channel = param.channel as any;
+        const action = channel.channelType === ChannelTypePerson
+          ? OrganizationalGroupNewAction.createGroup
+          : OrganizationalGroupNewAction.AddMember;
         return (
-          <OrganizationalGroupNew channel={channel} render={param.render} action={OrganizationalGroupNewAction.AddMember} />
+          <OrganizationalGroupNew channel={channel} render={param.render} action={action} />
         );
       }
     );
