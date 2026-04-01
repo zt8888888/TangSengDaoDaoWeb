@@ -24,6 +24,9 @@ export class TabNormalScreen extends Component<TabNormalScreenProps> {
           <li
             className="wk-main-sider-avatar"
             onClick={() => {
+              // 立即打开个人信息面板，不等 API 返回
+              vm.showMeInfo = true;
+              // 后台静默刷新用户数据
               const uid = WKApp.loginInfo.uid;
               WKApp.apiClient
                 .get(`/users/${uid}`)
@@ -33,8 +36,6 @@ export class TabNormalScreen extends Component<TabNormalScreenProps> {
                   loginInfo.name = data.name;
                   loginInfo.sex = data.sex;
                   loginInfo.save();
-
-                  vm.showMeInfo = true;
                 })
                 .catch((err) => {
                   console.log(err);

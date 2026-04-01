@@ -113,6 +113,7 @@ export class Convert {
         messageExtra.unreadCount = msgExtraMap["unread_count"] || 0
         messageExtra.extraVersion = msgExtraMap["extra_version"] || 0
         messageExtra.editedAt = msgExtraMap["edited_at"] || 0
+        ;(messageExtra as any).isPinned = msgExtraMap["is_pinned"] === 1
 
         const contentEditObj = msgExtraMap["content_edit"]
         if(contentEditObj) {
@@ -144,6 +145,9 @@ export class Convert {
         channelInfo.orgData.remark = data.remark ?? "";
         channelInfo.orgData.displayName = data.remark && data.remark !== "" ? data.remark : channelInfo.title;
         channelInfo.orgData.shortNo = data.short_no ?? ""
+        channelInfo.orgData.province = data.province ?? data.extra?.province
+        channelInfo.orgData.city = data.city ?? data.extra?.city
+        channelInfo.orgData.ip = data.ip ?? data.extra?.ip
 
         channelInfo.logo = data.logo
         if (!channelInfo.logo || channelInfo.logo === "") {

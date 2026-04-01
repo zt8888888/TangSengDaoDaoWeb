@@ -68,7 +68,10 @@ export class ChannelAvatar extends Component<ChannelAvatarProps>{
                                     WKApp.shared.changeChannelAvatarTag(channel)
                                     finishButtonContext.loading(false)
                                     context.pop()
-                                    this.setState({})
+                                    // 强制触发组件更新
+                                    this.forceUpdate()
+                                    // 发出通知
+                                    WKApp.shared.notifyListener()
                                 }
                             }
                         })
@@ -79,9 +82,11 @@ export class ChannelAvatar extends Component<ChannelAvatarProps>{
     }
     render() {
         const { channel,showUpload } = this.props
+        // 添加 key 以强制刷新
+        const avatarUrl = WKApp.shared.avatarChannel(channel)
         return <div className="wk-channelavatar">
             <div className="wk-channelavatar-avatar">
-                <img style={{"width":"200px","height":"200px"}} src={WKApp.shared.avatarChannel(channel)}></img>
+                <img key={avatarUrl} style={{"width":"200px","height":"200px"}} src={avatarUrl}></img>
             </div>
             <div className="wk-channelavatar-upload" style={{display:showUpload?"block":"none"}}>
                 <Button onClick={this.chooseFile}>更换头像</Button>

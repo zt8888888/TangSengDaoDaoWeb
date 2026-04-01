@@ -173,9 +173,11 @@ export default class MessageBase extends Component<MessageBaseProps, any> {
             case MessageReasonCode.reasonSubscriberNotExist:
                 return "您已被踢出群聊。"
             case MessageReasonCode.reasonNotAllowSend:
-            case MessageReasonCode.reasonNotInWhitelist:
-            case MessageReasonCode.reasonInBlacklist:
                 return "你已被禁言或全员禁言"
+            case MessageReasonCode.reasonNotInWhitelist:
+                return "你不在白名单中，无法发送消息"
+            case MessageReasonCode.reasonInBlacklist:
+                return "你已在黑名单中，无法发送消息"
             case MessageReasonCode.reasonSystemError:
                 return "系统错误"
         }

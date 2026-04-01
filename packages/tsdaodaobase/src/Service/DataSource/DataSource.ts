@@ -245,6 +245,7 @@ export interface IChannelDataSource {
         keyword?: string, // 搜索关键字
         limit?: number, // 每页数量
         page?: number, // 页码
+        display?: boolean, // 是否展示成员(包含虚拟成员)
     }): Promise<Subscriber[]>
 
     /**
@@ -319,6 +320,27 @@ export interface IChannelDataSource {
      * @param conversationExtra 
      */
     conversationExtraUpdate(conversationExtra: ConversationExtra): Promise<void>
+
+    /**
+     * 获取禁言时长列表
+     */
+    forbiddenTimes(): Promise<ForbiddenTimeOption[]>
+
+    /**
+     * 禁言/解禁群成员
+     * @param channel 
+     * @param req 
+     */
+    forbiddenWithMember(channel: Channel, req: {
+        memberUID: string
+        action: 0 | 1
+        key?: number
+    }): Promise<void>
+}
+
+export interface ForbiddenTimeOption {
+    text: string
+    key: number
 }
 
 export class ChannelQrcodeResp implements APIResp {

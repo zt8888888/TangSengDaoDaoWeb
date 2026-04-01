@@ -1,0 +1,179 @@
+{
+  "menus": [
+    {
+      "name": "Statistics",
+      "title": "数据统计",
+      "icon": "ri:bar-chart-box-line",
+      "path": "/statistics",
+      "component": "Layout",
+      "type": 0,
+      "sort": 1,
+      "children": [
+        { "name": "StatisticsOverview", "title": "统计概况", "icon": "ri:dashboard-line", "path": "/statistics/overview", "component": "/statistics/overview/index", "type": 1, "sort": 1 },
+        { "name": "UserOperations", "title": "用户运营", "icon": "ri:user-heart-line", "path": "/statistics/user-operations", "component": "/statistics/user-operations/index", "type": 1, "sort": 2 },
+        { "name": "FinanceAnalysis", "title": "财务分析", "icon": "ri:money-dollar-circle-line", "path": "/statistics/finance-analysis", "component": "/statistics/finance-analysis/index", "type": 1, "sort": 3 },
+        { "name": "StatisticsLottery", "title": "彩种统计", "icon": "ri:ticket-2-line", "path": "/statistics/lottery", "component": "/statistics/lottery/index", "type": 1, "sort": 4 }
+      ]
+    },
+    {
+      "name": "Lottery",
+      "title": "彩票管理",
+      "icon": "ri:ticket-line",
+      "path": "/lottery",
+      "component": "Layout",
+      "type": 0,
+      "sort": 2,
+      "children": [
+        { "name": "LotteryList", "title": "彩种列表", "icon": "ri:list-check", "path": "/lottery/lottery-list", "component": "/lottery/lottery-list/index", "type": 1, "sort": 1 },
+        { "name": "PlayList", "title": "玩法管理", "icon": "ri:gamepad-line", "path": "/lottery/play-list", "component": "/lottery/play-list/index", "type": 1, "sort": 2 },
+        { "name": "LotteryResultList", "title": "开奖管理", "icon": "ri:calendar-check-line", "path": "/lottery/result-list", "component": "/lottery/result-list/index", "type": 1, "sort": 3 },
+        { "name": "GameRecord", "title": "游戏记录", "icon": "ri:file-list-3-line", "path": "/lottery/game-record", "component": "/lottery/game-record/index", "type": 1, "sort": 4 },
+        { "name": "AbnormalRecord", "title": "注单异常检测", "icon": "ri:alarm-warning-line", "path": "/lottery/abnormal-record", "component": "/lottery/abnormal-record/index", "type": 1, "sort": 5 },
+        { "name": "OddsManage", "title": "玩法赔率", "icon": "ri:percent-line", "path": "/lottery/odds-manage", "component": "/lottery/odds-manage/index", "type": 1, "sort": 6 },
+        { "name": "QuickOdds", "title": "快捷赔率设置", "icon": "ri:speed-line", "path": "/lottery/quick-odds", "component": "/lottery/quick-odds/index", "type": 1, "sort": 7 },
+        { "name": "PreResult", "title": "系统彩预开奖", "icon": "ri:gift-line", "path": "/lottery/pre-result", "component": "/lottery/pre-result/index", "type": 1, "sort": 8 },
+        { "name": "PreResultHistory", "title": "预开奖历史", "icon": "ri:history-line", "path": "/lottery/pre-result-history", "component": "/lottery/pre-result-history/index", "type": 1, "sort": 9, "isHide": true }
+      ]
+    },
+    {
+      "name": "Member",
+      "title": "会员管理",
+      "icon": "ri:user-3-line",
+      "path": "/member",
+      "component": "Layout",
+      "type": 0,
+      "sort": 20,
+      "children": [
+        { "name": "MemberList", "title": "会员列表", "icon": "ri:user-search-line", "path": "/member/list", "component": "/member/list/index", "type": 1, "sort": 1 },
+        { "name": "MemberGroup", "title": "会员组", "icon": "ri:group-line", "path": "/member/group", "component": "/member/group/index", "type": 1, "sort": 2 },
+        { "name": "TeamProfile", "title": "团队概况", "icon": "ri:team-line", "path": "/member/team-profile", "component": "/statistics/team/index", "type": 1, "sort": 3 },
+        { "name": "IpCheck", "title": "同IP会员检测", "icon": "ri:shield-user-line", "path": "/member/ip-check", "component": "/member/ip-check/index", "type": 1, "sort": 4 },
+        { "name": "WithdrawAccount", "title": "提现账户管理", "icon": "ri:bank-card-line", "path": "/member/withdraw-account", "component": "/member/withdraw-account/index", "type": 1, "sort": 5 },
+        { "name": "BalanceLog", "title": "账变记录", "icon": "ri:file-list-3-line", "path": "/member/balance-log", "component": "/member/balance-log/index", "type": 1, "sort": 6 },
+        { "name": "BankInfo", "title": "银行信息管理", "icon": "ri:bank-line", "path": "/member/bank-info", "component": "/member/bank-info/index", "type": 1, "sort": 7 },
+        { "name": "AgentLink", "title": "代理注册链接", "icon": "ri:share-line", "path": "/member/agent-link", "component": "/member/agent-link/index", "type": 1, "sort": 8 },
+        { "name": "LoginLog", "title": "登录日志", "icon": "ri:history-line", "path": "/member/login-log", "component": "/member/login-log/index", "type": 1, "sort": 9 },
+        { "name": "Notice", "title": "站内信管理", "icon": "ri:message-3-line", "path": "/member/notice", "component": "/member/notice/index", "type": 1, "sort": 10 }
+      ]
+    },
+    {
+      "name": "Finance",
+      "title": "财务管理",
+      "icon": "ri:wallet-3-line",
+      "path": "/finance",
+      "component": "Layout",
+      "type": 0,
+      "sort": 30,
+      "children": [
+        { "name": "FinanceRecharge", "title": "充值管理", "icon": "ri:hand-coin-line", "path": "/finance/recharge", "component": "/finance/recharge/index", "type": 1, "sort": 1 },
+        { "name": "FinanceWithdraw", "title": "提现管理", "icon": "ri:bank-card-line", "path": "/finance/withdraw", "component": "/finance/withdraw/index", "type": 1, "sort": 2 },
+        { "name": "FinanceBank", "title": "提款银行配置", "icon": "ri:bank-line", "path": "/finance/bank", "component": "/finance/bank/index", "type": 1, "sort": 3 },
+        { "name": "FinancePaySet", "title": "充值方式配置", "icon": "ri:settings-3-line", "path": "/finance/payset", "component": "/finance/payset/index", "type": 1, "sort": 4 }
+      ]
+    },
+    {
+      "name": "Activity",
+      "title": "活动管理",
+      "icon": "ri:gift-2-line",
+      "path": "/activity",
+      "component": "Layout",
+      "type": 0,
+      "sort": 35,
+      "children": [
+        { "name": "ActivityList", "title": "活动列表", "icon": "ri:list-check", "path": "/activity/list", "component": "/activity/index", "type": 1, "sort": 1 },
+        { "name": "ActivityReward", "title": "活动奖励配置", "icon": "ri:gift-line", "path": "/activity/reward", "component": "/activity/reward/index", "type": 1, "sort": 2 },
+        { "name": "ActivityType", "title": "活动分类", "icon": "ri:list-settings-line", "path": "/activity/type", "component": "/activity/type/index", "type": 1, "sort": 3 }
+      ]
+    },
+    {
+      "name": "Live",
+      "title": "真人视讯",
+      "icon": "ri:gamepad-line",
+      "path": "/live",
+      "component": "Layout",
+      "type": 0,
+      "sort": 40,
+      "children": [
+        { "name": "GamePlatform", "title": "商户信息", "icon": "ri:store-3-line", "path": "/live/platform", "component": "/live/platform/index", "type": 1, "sort": 1 },
+        { "name": "GameBet", "title": "投注记录", "icon": "ri:file-list-line", "path": "/live/bet", "component": "/live/bet/index", "type": 1, "sort": 2 },
+        { "name": "GameTransfer", "title": "额度转让", "icon": "ri:exchange-cny-line", "path": "/live/transfer", "component": "/live/transfer/index", "type": 1, "sort": 3 }
+      ]
+    },
+    {
+      "name": "Yebao",
+      "title": "余额宝管理",
+      "icon": "ri:money-cny-box-line",
+      "path": "/yebao",
+      "component": "Layout",
+      "type": 0,
+      "sort": 45,
+      "children": [
+        { "name": "YebProduct", "title": "余额宝类型", "icon": "ri:list-settings-line", "path": "/yebao/product-list", "component": "/Yebgroup/index", "type": 1, "sort": 1 },
+        { "name": "YebHolding", "title": "余额宝记录", "icon": "ri:file-list-line", "path": "/yebao/holding-list", "component": "/Yebrecord/index", "type": 1, "sort": 2 },
+        { "name": "YebRecord", "title": "余额宝收益", "icon": "ri:hand-coin-line", "path": "/yebao/revenue-list", "component": "/Yebrecord/shouyi", "type": 1, "sort": 3 }
+      ]
+    },
+    {
+      "name": "Robot",
+      "title": "机器人与发单",
+      "icon": "ri:robot-line",
+      "path": "/robot",
+      "component": "Layout",
+      "type": 0,
+      "sort": 50,
+      "children": [
+        { "name": "RobotManage", "title": "机器人管理", "icon": "ri:settings-3-line", "path": "/robot/manage", "component": "/robot/manage/index", "type": 1, "sort": 1 },
+        { "name": "RobotSendOrder", "title": "发单设置", "icon": "ri:list-settings-line", "path": "/robot/send-order", "component": "/robot/send-order/index", "type": 1, "sort": 2 },
+        { "name": "RobotHeMai", "title": "合买列表", "icon": "ri:file-list-line", "path": "/robot/hemai", "component": "/robot/hemai/index", "type": 1, "sort": 3 }
+      ]
+    },
+    {
+      "name": "Chat28",
+      "title": "聊天室28",
+      "icon": "ri:message-3-line",
+      "path": "/chat28",
+      "component": "Layout",
+      "type": 0,
+      "sort": 55,
+      "children": [
+        { "name": "Chat28Live", "title": "实时监控", "icon": "ri:live-line", "path": "/chat28/live", "component": "/chat28/live/index", "type": 1, "sort": 0 },
+        { "name": "Chat28Config", "title": "机器人配置", "icon": "ri:settings-4-line", "path": "/chat28/config", "component": "/chat28/config/index", "type": 1, "sort": 1 },
+        { "name": "Chat28Robot", "title": "机器人管理", "icon": "ri:robot-line", "path": "/chat28/robot", "component": "/chat28/robot/index", "type": 1, "sort": 2 },
+        { "name": "Chat28Message", "title": "消息管理", "icon": "ri:chat-3-line", "path": "/chat28/message", "component": "/chat28/message/index", "type": 1, "sort": 3 }
+      ]
+    },
+    {
+      "name": "Maintenance",
+      "title": "运维管理",
+      "icon": "ri:tools-line",
+      "path": "/maintenance",
+      "component": "Layout",
+      "type": 0,
+      "sort": 90,
+      "children": [
+        { "name": "DataClear", "title": "数据清理", "icon": "ri:delete-bin-line", "path": "/maintenance/clear", "component": "/maintenance/clear/index", "type": 1, "sort": 1 },
+        { "name": "NoticeManage", "title": "公告管理", "icon": "ri:notification-line", "path": "/maintenance/notice", "component": "/maintenance/notice/index", "type": 1, "sort": 2 },
+        { "name": "TaskManage", "title": "计划任务", "icon": "ri:time-line", "path": "/maintenance/task", "component": "/maintenance/task/index", "type": 1, "sort": 3 },
+        { "name": "MonitorServer", "title": "服务监控", "icon": "ri:dashboard-3-line", "path": "/maintenance/server", "component": "/monitor/server/index", "type": 1, "sort": 4 }
+      ]
+    },
+    {
+      "name": "System",
+      "title": "系统管理",
+      "icon": "ri:user-3-line",
+      "path": "/system",
+      "component": "Layout",
+      "type": 0,
+      "sort": 100,
+      "children": [
+        { "name": "User", "title": "管理员管理", "icon": "ri:user-line", "path": "/system/user", "component": "/system/user/index", "type": 1, "sort": 1 },
+        { "name": "Role", "title": "角色管理", "icon": "ri:user-settings-line", "path": "/system/role", "component": "/system/role/index", "type": 1, "sort": 2 },
+        { "name": "Menus", "title": "菜单管理", "icon": "ri:menu-line", "path": "/system/menu", "component": "/system/menu/index", "type": 1, "sort": 3 },
+        { "name": "SystemSettings", "title": "系统设置", "icon": "ri:settings-3-line", "path": "/system/settings", "component": "/system/settings/index", "type": 1, "sort": 4 },
+        { "name": "SystemBanner", "title": "轮播图管理", "icon": "ri:image-line", "path": "/system/banner", "component": "/system/banner/index", "type": 1, "sort": 5 },
+        { "name": "SystemLog", "title": "操作日志", "icon": "ri:file-list-3-line", "path": "/system/log", "component": "/system/log/index", "type": 1, "sort": 6 },
+        { "name": "SystemLanguage", "title": "多语言配置", "icon": "ri:translate-2", "path": "language", "component": "/system/language/index", "type": 1, "sort": 7 }
+      ]
+    }
+  ]
+}

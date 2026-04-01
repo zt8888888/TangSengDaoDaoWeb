@@ -1,5 +1,9 @@
-import { ChannelQrcodeResp, Contacts, IChannelDataSource, ICommonDataSource, WKApp, RequestConfig, GroupRole } from "@tsdaodao/base";
+import { ChannelQrcodeResp, Contacts, ForbiddenTimeOption, IChannelDataSource, ICommonDataSource, WKApp, RequestConfig, GroupRole } from "@tsdaodao/base";
 import { Channel, ChannelInfo, ChannelTypeGroup, ChannelTypePerson, WKSDK, Message, MessageContentType,ConversationExtra,Subscriber } from "wukongimjssdk";
+
+// 部分后端未实现 /v1/groups/:id/members_display，或会对 query 参数 display=true 返回 400。
+// 这里做一次性探测：若某个群返回 400/404，则后续永久降级到 members，避免控制台/Network 刷屏。
+const membersDisplayUnsupportedGroupIDs = new Set<string>();
 
 export class ChannelDataSource implements IChannelDataSource {
 
@@ -75,10 +79,55 @@ export class ChannelDataSource implements IChannelDataSource {
         keyword?:string, // 搜索关键字
         limit?:number, // 每页数量
         page?:number, // 页码
+        display?: boolean, // 是否展示成员(包含虚拟成员)
     }): Promise<Subscriber[]> {
-        const resp = await WKApp.apiClient.get(`groups/${channel.channelID}/members`, {
-           param: req
-        })
+        const wantDisplay = Boolean(req.display);
+        const displaySupported = !membersDisplayUnsupportedGroupIDs.has(channel.channelID);
+        const useMembersDisplay = wantDisplay && displaySupported;
+
+        const path = useMembersDisplay ? `groups/${channel.channelID}/members_display` : `groups/${channel.channelID}/members`
+        let resp: any
+        try {
+            // members_display 走专用路由时不要再带 display=true 这个 query，避免部分后端严格校验导致 400。
+            const param: any = { ...req }
+            if (useMembersDisplay) {
+                delete param.display
+            }
+            resp = await WKApp.apiClient.get(path, { param })
+        } catch (e: any) {
+            // 一些后端没有 members_display 或会返回 400，这里自动降级到 members
+            if (wantDisplay) {
+                const status = e?.status
+                if (status === 400 || status === 404) {
+                    membersDisplayUnsupportedGroupIDs.add(channel.channelID)
+                }
+                try {
+                    const fallbackReq: any = { ...req }
+                    delete fallbackReq.display
+                    resp = await WKApp.apiClient.get(`groups/${channel.channelID}/members`, {
+                        param: fallbackReq,
+                    })
+                } catch (e2: any) {
+                    console.warn("[GroupSubscribers] load failed, fallback", {
+                        channelID: channel.channelID,
+                        channelType: channel.channelType,
+                        path,
+                        req,
+                        err: e2,
+                    })
+                    return []
+                }
+            } else {
+            console.warn("[GroupSubscribers] load failed, fallback", {
+                channelID: channel.channelID,
+                channelType: channel.channelType,
+                path,
+                req,
+                err: e,
+            })
+            return []
+            }
+        }
         let members = new Array<Subscriber>();
         if (resp) {
             for (let i = 0; i < resp.length; i++) {
@@ -147,6 +196,21 @@ export class ChannelDataSource implements IChannelDataSource {
             "keep_offset_y": conversationExtra.keepOffsetY,
             "draft": conversationExtra.draft||""
 
+        })
+    }
+
+    forbiddenTimes(): Promise<ForbiddenTimeOption[]> {
+        return WKApp.apiClient.get("group/forbidden_times")
+    }
+
+    forbiddenWithMember(channel: Channel, req: { memberUID: string; action: 0 | 1; key?: number }): Promise<void> {
+        if (channel.channelType === ChannelTypePerson) {
+            return Promise.resolve()
+        }
+        return WKApp.apiClient.post(`groups/${channel.channelID}/forbidden_with_member`, {
+            member_uid: req.memberUID,
+            action: req.action,
+            key: req.key,
         })
     }
 }

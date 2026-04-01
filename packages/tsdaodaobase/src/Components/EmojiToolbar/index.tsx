@@ -93,6 +93,7 @@ interface EmojiPanelProps {
 }
 
 var stickerCategories = new Array<any>()
+var stickerCategoriesLoadAttempted = false
 export class EmojiPanel extends Component<EmojiPanelProps, EmojiPanelState> {
     emojiService: EmojiService
 
@@ -114,10 +115,17 @@ export class EmojiPanel extends Component<EmojiPanelProps, EmojiPanelState> {
     }
 
     requestStickerCategory() {
+        if (stickerCategoriesLoadAttempted) {
+            return
+        }
         if (!stickerCategories || stickerCategories.length === 0) {
+            stickerCategoriesLoadAttempted = true
             WKApp.dataSource.commonDataSource.userStickerCategory().then((result) => {
                 stickerCategories = result
                 this.setState({})
+            }).catch(() => {
+                // 远端未部署贴纸接口时可能返回 404；贴纸是可选能力。
+                // 避免每次挂载都重试导致控制台刷屏。
             })
         }
     }
@@ -126,6 +134,8 @@ export class EmojiPanel extends Component<EmojiPanelProps, EmojiPanelState> {
             this.setState({
                 stickers: result.list,
             })
+        }).catch(() => {
+            // ignore
         })
     }
 

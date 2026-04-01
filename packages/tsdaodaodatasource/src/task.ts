@@ -18,19 +18,11 @@ export class MediaMessageUploadTask extends MessageTask {
     async start(): Promise<void> {
         const mediaContent = this.message.content as MediaMessageContent
         if(mediaContent.file) {
-            const param = new FormData();
-            param.append("file", mediaContent.file);
             const fileName = this.getUUID();
             const path = `/${this.message.channel.channelType}/${this.message.channel.channelID}/${fileName}${mediaContent.extension??""}`
-            const uploadURL = await  this.getUploadURL(path)
-            if(uploadURL) {
-                this.uploadFile(mediaContent.file,uploadURL)
-
-            }else{
-                console.log('获取上传地址失败！')
-                this.status = TaskStatus.fail
-                this.update()
-            }
+            // 统一走 APIClient 的 baseURL（开发环境可通过同源 /v1 代理转发，避免直接走 HTTP/2 域名导致上传异常）
+            const uploadURL = `file/upload?path=${encodeURIComponent(path)}&type=chat`
+            this.uploadFile(mediaContent.file,uploadURL)
         }else {
             console.log('多媒体消息不存在附件！');
             if (mediaContent.remoteUrl && mediaContent.remoteUrl !== "") {
@@ -46,16 +38,20 @@ export class MediaMessageUploadTask extends MessageTask {
    async uploadFile(file:File,uploadURL:string) {
         const param = new FormData();
         param.append("file", file);
+        param.append("contenttype", file.type || "application/octet-stream");
         const resp = await axios.post(uploadURL,param,{
             headers: { "Content-Type": "multipart/form-data" },
             cancelToken: new axios.CancelToken((c: Canceler) => {
                 this.canceler = c
             }),
             onUploadProgress: e => {
-                var completeProgress = ((e.loaded / e.total) | 0);
-                this._progress = completeProgress
+                if(e.total) {
+                    const completeProgress = Math.round((e.loaded * 100) / e.total)
+                    this._progress = completeProgress
+                }
                 this.update()
-            }
+            },
+            timeout: 10 * 60 * 1000,
         }).catch(error => {
             console.log('文件上传失败！->', error);
             this.status = TaskStatus.fail
@@ -71,13 +67,8 @@ export class MediaMessageUploadTask extends MessageTask {
         }
     }
 
-    // 获取上传路径
-    async getUploadURL(path:string) :Promise<string|undefined> {
-       const result = await WKApp.apiClient.get(`file/upload?path=${path}&type=chat`)
-       if(result) {
-           return result.url
-       }
-    }
+    // 旧逻辑：先 GET 获取绝对上传地址再 POST。
+    // 现在统一走 APIClient baseURL 的相对路径，便于开发环境同源代理转发。
 
     suspend(): void {
     }

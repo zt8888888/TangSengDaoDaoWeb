@@ -22,10 +22,12 @@ export interface ConversationListProps {
     select?: Channel
     onClick?: (conversation: ConversationWrap) => void
     onClearMessages?: (channel: Channel) => void
+    onMovePinnedConversation?: (fromChannelKey: string, toChannelKey: string) => void
 }
 
 export interface ConversationListState {
     selectConversationWrap?: ConversationWrap
+    draggingChannelKey?: string
 
 }
 
@@ -33,6 +35,7 @@ export default class ConversationList extends Component<ConversationListProps, C
     channelListener!: ChannelInfoListener
     contextMenusContext!: ContextMenusContext
     typingListener!: TypingListener
+    private _pendingRefresh: number | null = null  // 合并高频刷新
     constructor(props: ConversationListProps) {
         super(props)
 
@@ -40,14 +43,66 @@ export default class ConversationList extends Component<ConversationListProps, C
         }
     }
 
+    /**
+     * 合并短时间内的多次刷新请求为一次 setState，
+     * 避免 channelInfo 连续返回时触发 N 次全量重渲染。
+     */
+    private _scheduleRefresh() {
+        if (this._pendingRefresh !== null) return
+        this._pendingRefresh = window.requestAnimationFrame(() => {
+            this._pendingRefresh = null
+            this.setState({})
+        })
+    }
+
+    /**
+     * 已请求过 fetchChannelInfo 的频道集合，
+     * 避免同一频道在多次 render 中重复发起请求形成级联刷新。
+     */
+    private _fetchedChannels = new Set<string>()
+
+    private _ensureChannelInfo(channel: Channel): ChannelInfo | undefined {
+        const info = WKSDK.shared().channelManager.getChannelInfo(channel)
+        if (info) return info
+        const key = channel.getChannelKey()
+        if (!this._fetchedChannels.has(key)) {
+            this._fetchedChannels.add(key)
+            WKSDK.shared().channelManager.fetchChannelInfo(channel)
+        }
+        return undefined
+    }
+
+    private findByChannelKey(channelKey: string) {
+        const { conversations } = this.props
+        if (!conversations || !channelKey) {
+            return
+        }
+        for (const c of conversations) {
+            if (c.channel.getChannelKey() === channelKey) {
+                return c
+            }
+        }
+    }
+
+    private canDragPinned(fromKey?: string, toKey?: string) {
+        if (!fromKey || !toKey) {
+            return false
+        }
+        const from = this.findByChannelKey(fromKey)
+        const to = this.findByChannelKey(toKey)
+        return !!(from?.extra?.top === 1 && to?.extra?.top === 1)
+    }
+
     componentDidMount() {
         this.channelListener = (channelInfo: ChannelInfo) => {
-            this.setState({})
+            // 频道信息已返回，从去重集合中移除，允许后续再次拉取（如信息过期）
+            this._fetchedChannels.delete(channelInfo.channel.getChannelKey())
+            this._scheduleRefresh()
         }
         WKSDK.shared().channelManager.addListener(this.channelListener)
 
         this.typingListener = (channel: Channel, add: boolean) => {
-            this.setState({})
+            this._scheduleRefresh()
         }
         TypingManager.shared.addTypingListener(this.typingListener)
 
@@ -56,6 +111,10 @@ export default class ConversationList extends Component<ConversationListProps, C
     componentWillUnmount() {
         WKSDK.shared().channelManager.removeListener(this.channelListener)
         TypingManager.shared.removeTypingListener(this.typingListener)
+        if (this._pendingRefresh !== null) {
+            window.cancelAnimationFrame(this._pendingRefresh)
+            this._pendingRefresh = null
+        }
     }
 
     _handleScroll() {
@@ -93,23 +152,26 @@ export default class ConversationList extends Component<ConversationListProps, C
         if(lastMessage.flame) {
             return FlameMessageCell.tip(lastMessage)
         }
+        // 如果消息被编辑过，使用编辑后的内容
+        const digest = lastMessage.message.remoteExtra?.isEdit && lastMessage.message.remoteExtra?.contentEdit
+            ? lastMessage.message.remoteExtra.contentEdit.conversationDigest
+            : lastMessage.content?.conversationDigest
+
         if (lastMessage.channel.channelType === ChannelTypePerson) {
-            return lastMessage.content?.conversationDigest
+            return digest
         } else {
 
             let from = ""
             if (lastMessage.fromUID && lastMessage.fromUID !== "") {
                 const fromChannel = new Channel(lastMessage.fromUID, ChannelTypePerson)
-                const fromChannelInfo = WKSDK.shared().channelManager.getChannelInfo(fromChannel)
+                const fromChannelInfo = this._ensureChannelInfo(fromChannel)
                 if (fromChannelInfo) {
                     from = `${fromChannelInfo.title}: `
-                } else {
-                    WKSDK.shared().channelManager.fetchChannelInfo(fromChannel)
                 }
             }
 
 
-            return `${from}${lastMessage.content?.conversationDigest || ""}`
+            return `${from}${digest || ""}`
         }
     }
 
@@ -146,7 +208,7 @@ export default class ConversationList extends Component<ConversationListProps, C
 
         let channelInfo = conversationWrap.channelInfo
         if (!channelInfo) {
-            WKSDK.shared().channelManager.fetchChannelInfo(conversationWrap.channel)
+            this._ensureChannelInfo(conversationWrap.channel)
         }
 
         const avatarKey = WKApp.shared.getChannelAvatarTag(conversationWrap.channel);
@@ -154,7 +216,52 @@ export default class ConversationList extends Component<ConversationListProps, C
         const { select, onClick } = this.props
         const typing = TypingManager.shared.getTyping(conversationWrap.channel)
         const selected = select && select.isEqual(conversationWrap.channel)
-        return <div key={conversationWrap.channel.getChannelKey()} onClick={() => {
+        const channelKey = conversationWrap.channel.getChannelKey()
+        const isPinned = conversationWrap.extra?.top === 1
+
+        return <div
+            key={channelKey}
+            draggable={isPinned}
+            onDragStart={(e) => {
+                if (!isPinned) {
+                    return
+                }
+                try {
+                    e.dataTransfer.setData('text/plain', channelKey)
+                    e.dataTransfer.effectAllowed = 'move'
+                } catch {
+                    // ignore
+                }
+                this.setState({ draggingChannelKey: channelKey })
+            }}
+            onDragOver={(e) => {
+                const fromKey = this.state.draggingChannelKey
+                if (!this.canDragPinned(fromKey, channelKey)) {
+                    return
+                }
+                e.preventDefault()
+                try {
+                    e.dataTransfer.dropEffect = 'move'
+                } catch {
+                    // ignore
+                }
+            }}
+            onDrop={(e) => {
+                e.preventDefault()
+                const fromKey = this.state.draggingChannelKey
+                if (!this.canDragPinned(fromKey, channelKey)) {
+                    this.setState({ draggingChannelKey: undefined })
+                    return
+                }
+                if (this.props.onMovePinnedConversation && fromKey) {
+                    this.props.onMovePinnedConversation(fromKey, channelKey)
+                }
+                this.setState({ draggingChannelKey: undefined })
+            }}
+            onDragEnd={() => {
+                this.setState({ draggingChannelKey: undefined })
+            }}
+            onClick={() => {
             if (onClick) {
                 onClick(conversationWrap)
             }
@@ -182,15 +289,21 @@ export default class ConversationList extends Component<ConversationListProps, C
                             {
                                 channelInfo?.orgData.identityIcon ? <img style={{ "marginLeft": "4px", "width": channelInfo?.orgData?.identitySize.width, "height": channelInfo?.orgData?.identitySize.height }} src={channelInfo?.orgData.identityIcon}></img> : undefined
                             }
-                            <div style={{ "width": "14px", height: "14px", "display": "flex", "alignItems": "center", "marginLeft": "5px" }}>
-                                {
-                                    channelInfo?.mute && <svg className="icon" viewBox="0 0 1131 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" p-id="2755" width="14" height="14"><path d="M914.688 892.736L64 236.224l38.784-50.88L271.36 315.648a300.288 300.288 0 0 1 246.976-157.952v-33.28c0-16.64 13.504-30.08 30.08-30.08h2.304c16.576 0 30.08 13.44 30.08 30.08v32.96a299.776 299.776 0 0 1 284.928 299.136v294.272l45.504 58.624 48.768 37.696-45.312 45.632zM234.624 480.384l506.88 391.232H140.416l94.272-121.536-0.064-269.696z" fill="#bfbfbf" p-id="2756"></path></svg>
-                                }
 
-                            </div>
-                            <div className="wk-conversationlist-item-time">
-                                <span>{getTimeStringAutoShort2(conversationWrap.timestamp * 1000, true)}</span>
-                            </div>
+                            {
+                                channelInfo?.top ? <span className="wk-conversationlist-item-top-tag">置顶</span> : undefined
+                            }
+                            {
+                                channelInfo?.mute ? (
+                                    <div style={{ "width": "14px", height: "14px", "display": "flex", "alignItems": "center", "marginLeft": "5px" }}>
+                                        <svg className="icon" viewBox="0 0 1131 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" p-id="2755" width="14" height="14"><path d="M914.688 892.736L64 236.224l38.784-50.88L271.36 315.648a300.288 300.288 0 0 1 246.976-157.952v-33.28c0-16.64 13.504-30.08 30.08-30.08h2.304c16.576 0 30.08 13.44 30.08 30.08v32.96a299.776 299.776 0 0 1 284.928 299.136v294.272l45.504 58.624 48.768 37.696-45.312 45.632zM234.624 480.384l506.88 391.232H140.416l94.272-121.536-0.064-269.696z" fill="#bfbfbf" p-id="2756"></path></svg>
+                                    </div>
+                                ) : undefined
+                            }
+                        </div>
+
+                        <div className="wk-conversationlist-item-time">
+                            <span>{getTimeStringAutoShort2(conversationWrap.timestamp * 1000, true)}</span>
                         </div>
 
                     </div>

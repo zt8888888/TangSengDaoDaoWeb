@@ -34,7 +34,7 @@ export enum ThemeMode {
   dark,
 }
 export class WKConfig {
-  appName: string = "唐僧叨叨";
+  appName: string = "裕民心安";
   appVersion: string = "0.0.0"; // app版本
   themeColor: string = "#E46342"; // 主题颜色
   secondColor: string = "rgba(232, 234, 237)";
@@ -294,10 +294,12 @@ export default class WKApp extends ProviderListener {
     };
 
     WKApp.endpoints.addOnLogin(() => {
+      WKApp.remoteConfig.startRequestConfig();
       this.startMain();
     });
 
     if (WKApp.loginInfo.isLogined()) {
+      WKApp.remoteConfig.startRequestConfig();
       this.startMain();
     }
 
@@ -330,9 +332,6 @@ export default class WKApp extends ProviderListener {
     } else {
       this._notificationIsClose = false;
     }
-
-    WKApp.remoteConfig.startRequestConfig();
-
 
   }
 

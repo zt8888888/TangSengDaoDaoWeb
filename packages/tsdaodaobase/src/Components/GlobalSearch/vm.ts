@@ -17,6 +17,9 @@ export default class GlobalSearchVM extends ProviderListener {
     public contentTypes = new Array<number>() // 内容类型
     private channelInfoListener!: ChannelInfoListener;
     public channel?: Channel // 查询指定频道的消息
+
+    private searchDebounceTimer: any = null;
+    private latestSearchSeq = 0;
     // tab数据列表
     public get tabList() {
         if (this.searchInChannel) {
@@ -73,6 +76,7 @@ export default class GlobalSearchVM extends ProviderListener {
     }
 
     didMount(): void {
+        // 默认不做空关键字搜索，避免把服务端/WuKongIM 搜索打爆。
         this.requestSearch()
 
         this.channelInfoListener = (channelInfo: ChannelInfo) => {
@@ -99,12 +103,24 @@ export default class GlobalSearchVM extends ProviderListener {
     // 输入框输入事件
     public handleInputChange = (value: string) => {
         if (!this.isComposing) {
-            this.keyword = value;
+            const normalized = (value || "").trim().replace(/\\+$/g, "");
+            this.keyword = normalized;
             console.log(this.keyword);
             this.initLoad()
-            this.requestSearch();
+            this.scheduleSearch();
         }
     };
+
+    private scheduleSearch(delayMs: number = 300) {
+        if (this.searchDebounceTimer) {
+            clearTimeout(this.searchDebounceTimer)
+            this.searchDebounceTimer = null
+        }
+        this.searchDebounceTimer = setTimeout(() => {
+            this.searchDebounceTimer = null
+            this.requestSearch()
+        }, delayMs)
+    }
 
     public initLoad() {
         this.page = 1
@@ -117,8 +133,19 @@ export default class GlobalSearchVM extends ProviderListener {
     // 请求搜索
     public requestSearch() {
 
+        const keyword = (this.keyword || "").trim()
+        if (!keyword) {
+            this.loadFinish = true
+            this.loadMoreing = false
+            this.searchResult = { friends: [], groups: [], messages: [] }
+            this.notifyListener()
+            return
+        }
+
+        const seq = ++this.latestSearchSeq
+
         const param: any = {
-            keyword: this.keyword || "",
+            keyword,
             page: this.page,
             limit: this.limit,
             content_type: this.contentTypes
@@ -133,8 +160,11 @@ export default class GlobalSearchVM extends ProviderListener {
 
         console.log("requestSearch", param);
 
-
         APIClient.shared.post("/search/global", param).then(res => {
+
+            if (seq !== this.latestSearchSeq) {
+                return
+            }
 
             if (res.messages.length < this.limit) {
                 this.loadFinish = true
@@ -183,9 +213,19 @@ export default class GlobalSearchVM extends ProviderListener {
                 }
                
             })
+        }).catch((e: any) => {
+            if (seq !== this.latestSearchSeq) {
+                return
+            }
+            // 统一在此捕获，避免控制台 Uncaught (in promise)
+            console.warn("[GlobalSearch] request failed", e)
+            this.searchResult = { friends: [], groups: [], messages: [] }
+            this.loadFinish = true
         }).finally(() => {
-            this.loadMoreing = false
-            this.notifyListener()
+            if (seq === this.latestSearchSeq) {
+                this.loadMoreing = false
+                this.notifyListener()
+            }
         })
     }
 

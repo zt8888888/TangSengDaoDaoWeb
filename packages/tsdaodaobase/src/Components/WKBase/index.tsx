@@ -38,6 +38,19 @@ export class GlobalModalOptions {
   onCancel?: () => void;
 }
 
+function normalizeModalHeight(height?: string): string | undefined {
+  if (!height) return undefined;
+  const h = height.trim();
+  // 调用方大量传 "90%" 这类值，但百分比高度在弹窗里经常不生效；这里按视口高度处理
+  if (h.endsWith("%")) {
+    const num = h.slice(0, -1).trim();
+    if (num && !Number.isNaN(Number(num))) {
+      return `${num}vh`;
+    }
+  }
+  return h;
+}
+
 export interface WKBaseProps {
   children: React.ReactNode;
   onContext?: (context: WKBaseContext) => void;
@@ -69,6 +82,7 @@ export default class WKBase
   extends Component<WKBaseProps, WKBaseState>
   implements WKBaseContext
 {
+  private keydownListener?: (e: KeyboardEvent) => void;
   constructor(props: any) {
     super(props);
     this.state = {};
@@ -131,6 +145,50 @@ export default class WKBase
     if (onContext) {
       onContext(this);
     }
+    this.keydownListener = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (e.defaultPrevented) return;
+      // 优先让弹窗自身处理 ESC（比如全局弹窗、会话选择等）
+      if (
+        this.state.showAlert ||
+        this.state.showConversationSelect ||
+        this.state.showGlobalModal ||
+        this.state.showJoinOrgInfo
+      ) {
+        return;
+      }
+      if (this.state.showUserInfo) {
+        e.preventDefault();
+        e.stopPropagation();
+        this.hideUserInfo();
+        return;
+      }
+
+      // 聊天页面：按 ESC 退出当前会话，回到初始空白页
+      if (WKApp.shared.openChannel) {
+        e.preventDefault();
+        e.stopPropagation();
+        WKApp.shared.openChannel = undefined;
+        try {
+          WKApp.mittBus.emit("conversation.close");
+        } catch {
+          // ignore
+        }
+        try {
+          WKApp.routeRight.popToRoot();
+        } catch {
+          // ignore
+        }
+        WKApp.shared.notifyListener();
+      }
+    };
+    window.addEventListener("keydown", this.keydownListener, false);
+  }
+
+  componentWillUnmount() {
+    if (this.keydownListener) {
+      window.removeEventListener("keydown", this.keydownListener, false);
+    }
   }
 
   cancelAlert() {
@@ -180,6 +238,7 @@ export default class WKBase
           visible={showUserInfo}
           mask={false}
           centered
+          closeOnEsc={true}
           onCancel={() => {
             this.setState({
               showUserInfo: false,
@@ -251,7 +310,9 @@ export default class WKBase
           footer={this.state.globalModalOptions?.footer}
           onCancel={this.state.globalModalOptions?.onCancel}
         >
-          {this.state.globalModalOptions?.body}
+          <div style={{ height: normalizeModalHeight(this.state.globalModalOptions?.height) || "auto" }}>
+            {this.state.globalModalOptions?.body}
+          </div>
         </Modal>
         {/* 加入组织 */}
         <Modal

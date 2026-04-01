@@ -94,3 +94,48 @@ body[theme-mode=dark]  .wk-userInfo-footer {
     justify-content: center;
     margin-top: 20px;
 }
+
+.wk-userinfo-forbidden-modal {
+    padding: 0.5rem 0;
+}
+
+.wk-userinfo-forbidden-modal-title {
+    font-size: 16px;
+    font-weight: 500;
+    margin-bottom: 0.75rem;
+    color: var(--wk-text-item);
+}
+
+.wk-userinfo-forbidden-modal-options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.wk-userinfo-forbidden-modal-option {
+    padding: 0.4rem 0.75rem;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 13px;
+    color: #333;
+    background: #fff;
+    transition: border-color .15s ease, color .15s ease, background .15s ease;
+}
+
+.wk-userinfo-forbidden-modal-option:hover {
+    border-color: #1c7efb;
+    color: #1c7efb;
+    background: rgba(28, 126, 251, .06);
+}
+
+body[theme-mode=dark] .wk-userinfo-forbidden-modal-option {
+    background: rgba(255,255,255,.06);
+    border-color: rgba(255,255,255,.12);
+    color: rgba(255,255,255,.85);
+}
+
+body[theme-mode=dark] .wk-userinfo-forbidden-modal-option:hover {
+    border-color: rgba(28, 126, 251, .9);
+    background: rgba(28, 126, 251, .15);
+}

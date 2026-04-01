@@ -84,6 +84,7 @@ import GlobalSearch from "./Components/GlobalSearch";
 import { handleGlobalSearchClick } from "./Pages/Chat/vm";
 import { ApproveGroupMemberCell } from "./Messages/ApproveGroupMember";
 import { notificationUtil } from "./Utils/NotificationUtil";
+import MediaSummary from "./Components/MediaSummary";
 
 export default class BaseModule implements IModule {
   messageTone?: Howl;
@@ -219,6 +220,39 @@ export default class BaseModule implements IModule {
       const cmdContent = message.content as CMDContent;
       const param = cmdContent.param;
 
+      const cleanupConversation = (channel: Channel) => {
+        try {
+          const conversation = WKSDK.shared().conversationManager.findConversation(channel);
+          if (conversation) {
+            // 尽量把该会话的提醒项标记 done，避免退群后红点残留
+            const reminders: any[] = (conversation as any).reminders || [];
+            const reminderIDs: number[] = [];
+            for (const r of reminders) {
+              const id = Number((r as any)?.reminderID ?? (r as any)?.id);
+              if (!isNaN(id as any) && id > 0) {
+                reminderIDs.push(id);
+              }
+            }
+            if (reminderIDs.length > 0) {
+              WKSDK.shared().reminderManager.done(reminderIDs);
+            }
+          }
+        } catch {
+          // ignore
+        }
+
+        // 清理未读（服务端 + 本地）
+        WKApp.conversationProvider
+          .markConversationUnread(channel, 0)
+          .catch(() => undefined);
+
+        // 兜底删除最近会话（服务端），避免 cmd 丢失导致重登仍存在
+        WKApp.conversationProvider.deleteConversation(channel).catch(() => undefined);
+
+        // 本地移除会话
+        WKSDK.shared().conversationManager.removeConversation(channel);
+      };
+
       if (cmdContent.cmd === "channelUpdate") {
         // 频道信息更新
         WKSDK.shared().channelManager.fetchChannelInfo(
@@ -259,7 +293,7 @@ export default class BaseModule implements IModule {
       } else if (cmdContent.cmd === "conversationDeleted") {
         // 最近会话删除
         const channel = new Channel(param.channel_id, param.channel_type);
-        WKSDK.shared().conversationManager.removeConversation(channel);
+        cleanupConversation(channel);
       } else if (cmdContent.cmd === "friendRequest") {
         // 好友申请
         const friendApply = new FriendApply();
@@ -309,7 +343,19 @@ export default class BaseModule implements IModule {
           cmdContent.param.group_no,
           ChannelTypeGroup
         );
-        WKSDK.shared().channelManager.syncSubscribes(channel);
+        // 同步订阅者后，若发现自己不在订阅者列表中（被移除/退群），则清理会话与红点
+        WKSDK.shared()
+          .channelManager.syncSubscribes(channel)
+          .finally(() => {
+            const myUID = WKApp.loginInfo.uid || "";
+            if (!myUID) {
+              return;
+            }
+            const subOfMe = WKSDK.shared().channelManager.getSubscribeOfMe(channel);
+            if (!subOfMe) {
+              cleanupConversation(channel);
+            }
+          });
       } else if (cmdContent.cmd === "onlineStatus") {
         // 好友在线状态改变
         const channel = new Channel(cmdContent.param.uid, ChannelTypePerson);
@@ -328,6 +374,13 @@ export default class BaseModule implements IModule {
       } else if (cmdContent.cmd === "syncConversationExtra") {
         // 同步最近会话扩展
         WKSDK.shared().conversationManager.syncExtra();
+      } else if (cmdContent.cmd === "syncPinnedConversationOrder") {
+        // 多端置顶会话排序变更：通知 ChatVM 拉取并重排
+        try {
+          WKApp.mittBus.emit("conversation.pinnedOrder.sync");
+        } catch {
+          // ignore
+        }
       } else if (cmdContent.cmd === "syncReminders") {
         // 同步提醒项
         WKSDK.shared().reminderManager.sync();
@@ -343,7 +396,7 @@ export default class BaseModule implements IModule {
           conversation.lastMessage?.messageID === messageID
         ) {
           conversation.lastMessage.remoteExtra.revoke = true;
-          conversation.lastMessage.remoteExtra.revoker = message.fromUID;
+            conversation.lastMessage.remoteExtra.revoker = String(cmdContent.param?.revoker ?? message.fromUID ?? conversation.lastMessage.fromUID ?? '')
           WKSDK.shared().conversationManager.notifyConversationListeners(
             conversation,
             ConversationAction.update
@@ -486,6 +539,16 @@ export default class BaseModule implements IModule {
         <ImageToolbar
           icon={require("./assets/toolbars/func_upload_image.svg").default}
           conversationContext={ctx}
+          accept="image/*"
+        ></ImageToolbar>
+      );
+    });
+    WKApp.endpoints.registerChatToolbar("chattoolbar.video", (ctx) => {
+      return (
+        <ImageToolbar
+          icon={require("./assets/toolbars/func_upload_video.svg").default}
+          conversationContext={ctx}
+          accept="video/*"
         ></ImageToolbar>
       );
     });
@@ -515,21 +578,355 @@ export default class BaseModule implements IModule {
     WKApp.endpoints.registerMessageContextMenus(
       "contextmenus.copy",
       (message) => {
-        if (message.contentType !== MessageContentType.text) {
+        if (message.contentType !== MessageContentType.text && message.contentType !== MessageContentType.image) {
           return null;
         }
+
+        const guessImageMimeTypeFromUrl = (imageUrl: string): string | undefined => {
+          const lower = (imageUrl || "").toLowerCase();
+          // 尽量只从 pathname 推断（避免 query 里人为塞 filename 导致误判）
+          let pathname = lower;
+          try {
+            pathname = new URL(imageUrl, window.location.origin).pathname.toLowerCase();
+          } catch {
+            // ignore
+          }
+          if (pathname.endsWith(".png")) {
+            return "image/png";
+          }
+          if (pathname.endsWith(".jpg") || pathname.endsWith(".jpeg")) {
+            return "image/jpeg";
+          }
+          if (pathname.endsWith(".gif")) {
+            return "image/gif";
+          }
+          if (pathname.endsWith(".webp")) {
+            return "image/webp";
+          }
+          if (pathname.endsWith(".bmp")) {
+            return "image/bmp";
+          }
+          return undefined;
+        };
+
+        const sniffImageMimeType = async (blob: Blob): Promise<string | undefined> => {
+          try {
+            const ab = await blob.slice(0, 32).arrayBuffer();
+            const b = new Uint8Array(ab);
+
+            // PNG: 89 50 4E 47 0D 0A 1A 0A
+            if (
+              b.length >= 8 &&
+              b[0] === 0x89 &&
+              b[1] === 0x50 &&
+              b[2] === 0x4e &&
+              b[3] === 0x47 &&
+              b[4] === 0x0d &&
+              b[5] === 0x0a &&
+              b[6] === 0x1a &&
+              b[7] === 0x0a
+            ) {
+              return "image/png";
+            }
+            // JPEG: FF D8 FF
+            if (b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) {
+              return "image/jpeg";
+            }
+            // GIF: 47 49 46 38
+            if (b.length >= 4 && b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x38) {
+              return "image/gif";
+            }
+            // WEBP: RIFF....WEBP
+            if (
+              b.length >= 12 &&
+              b[0] === 0x52 &&
+              b[1] === 0x49 &&
+              b[2] === 0x46 &&
+              b[3] === 0x46 &&
+              b[8] === 0x57 &&
+              b[9] === 0x45 &&
+              b[10] === 0x42 &&
+              b[11] === 0x50
+            ) {
+              return "image/webp";
+            }
+            // BMP: 42 4D
+            if (b.length >= 2 && b[0] === 0x42 && b[1] === 0x4d) {
+              return "image/bmp";
+            }
+          } catch {
+            // ignore
+          }
+          return undefined;
+        };
+
+        const toAbsoluteUrl = (inputUrl: string): string => {
+          if (!inputUrl) {
+            return inputUrl;
+          }
+          try {
+            const u = new URL(inputUrl, window.location.origin);
+            return u.href;
+          } catch {
+            return inputUrl;
+          }
+        };
 
         return {
           title: "复制",
           onClick: () => {
-            (function (s) {
-              document.oncopy = function (e) {
-                e.clipboardData?.setData("text", s);
-                e.preventDefault();
-                document.oncopy = null;
+            if (message.contentType === MessageContentType.image) {
+              const content = message.content as ImageContent
+              const buildImageSrcForCopy = (c: ImageContent): string => {
+                if (c?.url && c.url !== "") {
+                  // 复制到剪贴板的场景，不要强行追加 filename=image.png，避免服务端按文件名错误推断 Content-Type
+                  return WKApp.dataSource.commonDataSource.getImageURL(c.url, { width: c.width, height: c.height });
+                }
+                return c?.imgData || "";
               };
-            })((message.content as MessageText).text || "");
-            document.execCommand("Copy");
+
+              const url = buildImageSrcForCopy(content);
+              if (!url) {
+                Toast.warning("图片未就绪，请稍后再试");
+                return;
+              }
+              const absoluteUrl = toAbsoluteUrl(url)
+              void (async () => {
+                const debugEnabled = (): boolean => {
+                  try {
+                    return localStorage.getItem("wk_debug_copy_image") === "1";
+                  } catch {
+                    return false;
+                  }
+                };
+
+                const debugLog = (...args: any[]) => {
+                  if (debugEnabled()) {
+                    // eslint-disable-next-line no-console
+                    console.log("[copy-image]", ...args);
+                  }
+                };
+
+                const notifyCopyImageFailed = (err?: any) => {
+                  const name = err?.name || "";
+                  if (name === "NotAllowedError") {
+                    Toast.warning("浏览器拒绝写入剪贴板，请检查权限/HTTPS，并重试");
+                    return;
+                  }
+                  Toast.error("复制图片失败");
+                };
+
+                const getTokenHeader = (): Record<string, string> => {
+                  try {
+                    const token = WKApp.apiClient.config.tokenCallback?.();
+                    if (token) {
+                      return { token };
+                    }
+                  } catch {
+                    // ignore
+                  }
+                  return {};
+                };
+
+                const convertToPngIfPossible = async (blob: Blob): Promise<{ blob: Blob; mimeType: string }> => {
+                  try {
+                    const originalType = blob.type && blob.type.startsWith("image/") ? blob.type : "";
+                    if (originalType === "image/png") {
+                      return { blob, mimeType: "image/png" };
+                    }
+                    // 太大的图转码很容易触发内存/解码失败，保留原始格式更稳
+                    if (blob.size > 12 * 1024 * 1024) {
+                      return { blob, mimeType: originalType || "application/octet-stream" };
+                    }
+                    if (!(window as any).createImageBitmap) {
+                      return { blob, mimeType: originalType || "application/octet-stream" };
+                    }
+                    const bitmap = await (window as any).createImageBitmap(blob);
+                    const canvas = document.createElement("canvas");
+                    canvas.width = bitmap.width;
+                    canvas.height = bitmap.height;
+                    const ctx = canvas.getContext("2d");
+                    if (!ctx) {
+                      bitmap.close?.();
+                      return { blob, mimeType: originalType || "application/octet-stream" };
+                    }
+                    ctx.drawImage(bitmap, 0, 0);
+                    bitmap.close?.();
+                    const png = await new Promise<Blob>((resolve, reject) => {
+                      canvas.toBlob((b) => {
+                        if (b) {
+                          resolve(b);
+                        } else {
+                          reject(new Error("toBlob failed"));
+                        }
+                      }, "image/png");
+                    });
+                    return { blob: png, mimeType: "image/png" };
+                  } catch {
+                    const t = blob.type && blob.type.startsWith("image/") ? blob.type : "application/octet-stream";
+                    return { blob, mimeType: t };
+                  }
+                };
+
+                const fetchImageAsBlob = async (fetchUrl: string, requestInit: RequestInit): Promise<{ blob: Blob; contentType: string }> => {
+                  const res = await fetch(fetchUrl, requestInit);
+                  if (!res.ok) {
+                    throw new Error(`HTTP ${res.status}`);
+                  }
+                  const blob = await res.blob();
+                  const contentType = res.headers.get("content-type") || "";
+                  return { blob, contentType };
+                };
+
+                const resolveImageBlob = async (): Promise<{ blob: Blob; contentType: string; via: "direct" | "proxy" }> => {
+                  const directRequestInit: RequestInit = {
+                    mode: "cors",
+                    credentials: "omit",
+                  };
+
+                  // 仅在同源/同 API 域时附带 token（跨域附带自定义 header 会触发预检，反而更容易失败）
+                  try {
+                    const apiBase = WKApp.apiClient.config.apiURL || "";
+                    const apiOrigin = apiBase ? new URL(apiBase).origin : "";
+                    const target = new URL(absoluteUrl, window.location.origin);
+                    const isSameOriginAsPage = target.origin === window.location.origin;
+                    const isSameOriginAsApi = apiOrigin ? target.origin === apiOrigin : false;
+                    if (isSameOriginAsPage || isSameOriginAsApi) {
+                      const tokenHeader = getTokenHeader();
+                      if (Object.keys(tokenHeader).length > 0) {
+                        directRequestInit.headers = {
+                          ...(directRequestInit.headers || {}),
+                          ...tokenHeader,
+                        };
+                      }
+                    }
+                  } catch {
+                    // ignore
+                  }
+                  try {
+                    const r = await fetchImageAsBlob(absoluteUrl, directRequestInit);
+                    return { ...r, via: "direct" };
+                  } catch (e) {
+                    debugLog("direct fetch failed", e);
+                  }
+
+                  // 通过服务端代理绕过跨域/CORS
+                  const proxyUrl = `${WKApp.apiClient.config.apiURL}file/proxy?url=${encodeURIComponent(absoluteUrl)}`;
+                  const proxyRequestInit: RequestInit = {
+                    headers: {
+                      ...getTokenHeader(),
+                    },
+                    // 即便 apiURL 配成跨域，这里也尽量不带 cookie，避免 ACAO:* 与 credentials 冲突
+                    credentials: "omit",
+                  };
+                  const r = await fetchImageAsBlob(proxyUrl, proxyRequestInit);
+                  return { ...r, via: "proxy" };
+                };
+
+                try {
+                  const isElectron = Boolean((window as any).__POWERED_ELECTRON__ && (window as any).ipc?.invoke);
+
+                  // Electron 桌面端优先走原生剪贴板，绕开浏览器 Clipboard 限制
+                  if (isElectron) {
+                    const { blob: originBlob, contentType, via } = await resolveImageBlob();
+                    const urlGuess = guessImageMimeTypeFromUrl(absoluteUrl);
+                    const headerGuess = contentType && contentType.startsWith("image/") ? contentType : "";
+                    const blobGuess = originBlob.type && originBlob.type.startsWith("image/") ? originBlob.type : "";
+                    const sniffGuess = await sniffImageMimeType(originBlob);
+                    const preferredMimeType = urlGuess || blobGuess || headerGuess || sniffGuess || "image/png";
+                    const typedBlob = originBlob.type ? originBlob : new Blob([originBlob], { type: preferredMimeType });
+                    const converted = await convertToPngIfPossible(typedBlob);
+                    const finalBlob = converted.blob;
+                    const ab = await finalBlob.arrayBuffer();
+                    debugLog("electron copy", { via, size: finalBlob.size, type: converted.mimeType, preferredMimeType, contentType });
+                    const r = await (window as any).ipc.invoke("clipboard:writeImage", { data: ab });
+                    if (r?.ok) {
+                      Toast.success("复制成功");
+                      return;
+                    }
+                    debugLog("electron clipboard failed", r);
+                    // 继续走浏览器剪贴板兜底
+                  }
+
+                  const ClipboardItemCtor = (window as any).ClipboardItem;
+                  if (!navigator.clipboard?.write || !ClipboardItemCtor) {
+                    Toast.warning("当前环境不支持复制图片到剪贴板，请使用 Chrome/Edge 或桌面端");
+                    return;
+                  }
+
+                  // 关键：不要先 await fetch 再写剪贴板（会丢失 user activation），
+                  // 而是把异步获取 Blob 放进 ClipboardItem 的 Promise 里。
+                  const urlGuess = guessImageMimeTypeFromUrl(absoluteUrl);
+                  const preferredMimeType = urlGuess || "image/png";
+
+                  // 关键：不要先 await fetch 再 write（会丢 user activation）
+                  // 但我们仍然可以在 Promise 里动态决定最终写入的 mime
+                  const blobPromise: Promise<{ blob: Blob; mimeType: string; via: string; contentType: string }> = (async () => {
+                    const { blob: originBlob, contentType, via } = await resolveImageBlob();
+                    const headerGuess = contentType && contentType.startsWith("image/") ? contentType : "";
+                    const blobGuess = originBlob.type && originBlob.type.startsWith("image/") ? originBlob.type : "";
+                    const sniffGuess = await sniffImageMimeType(originBlob);
+                    const detectedMimeType = blobGuess || headerGuess || sniffGuess || preferredMimeType;
+                    const typedBlob = originBlob.type ? originBlob : new Blob([originBlob], { type: detectedMimeType });
+                    const converted = await convertToPngIfPossible(typedBlob);
+                    const finalMimeType = converted.mimeType && converted.mimeType.startsWith("image/") ? converted.mimeType : detectedMimeType;
+                    debugLog("resolved blob", { via, size: converted.blob.size, type: finalMimeType, preferredMimeType, contentType });
+                    return { blob: converted.blob, mimeType: finalMimeType, via, contentType };
+                  })();
+
+                  // ClipboardItem 的 key 必须和 Promise 最终 resolve 的 Blob 类型一致，否则部分浏览器会直接拒绝
+                  // 因为 key 需要在构造时就确定，所以这里优先使用 image/png：能转就转；不能转时再回退到原始 mime
+                  let itemWritten = false;
+                  try {
+                    await navigator.clipboard.write([
+                      new ClipboardItemCtor({
+                        "image/png": (async () => {
+                          const r = await blobPromise;
+                          if (r.mimeType === "image/png") {
+                            return r.blob;
+                          }
+                          // 不能转码时，不要伪装成 png，直接抛错走下面的原始 mime 流程
+                          throw new Error("not-png");
+                        })(),
+                      }),
+                    ]);
+                    itemWritten = true;
+                  } catch (e) {
+                    debugLog("png clipboard write skipped", e);
+                  }
+
+                  if (!itemWritten) {
+                    const r = await blobPromise;
+                    const mt = r.mimeType && r.mimeType.startsWith("image/") ? r.mimeType : preferredMimeType;
+                    await navigator.clipboard.write([
+                      new ClipboardItemCtor({
+                        [mt]: Promise.resolve(r.blob.type === mt ? r.blob : new Blob([r.blob], { type: mt })),
+                      }),
+                    ]);
+                  }
+                  Toast.success("复制成功");
+                } catch (err) {
+                  debugLog("clipboard write failed", err);
+                  const msg = (err as any)?.message || "";
+                  const name = (err as any)?.name || "";
+                  if (msg) {
+                    debugLog("clipboard write error detail", { name, msg });
+                  }
+                  // 不再自动兜底复制链接（避免“复制”结果变成 URL）
+                  notifyCopyImageFailed(err);
+                }
+              })();
+            } else {
+              (function (s) {
+                document.oncopy = function (e) {
+                  e.clipboardData?.setData("text", s);
+                  e.preventDefault();
+                  document.oncopy = null;
+                };
+              })((message.content as MessageText).text || "");
+              document.execCommand("Copy");
+            }
+
           },
         };
       },
@@ -562,6 +959,77 @@ export default class BaseModule implements IModule {
           },
         };
       }
+    );
+
+    WKApp.endpoints.registerMessageContextMenus(
+      "contextmenus.edit",
+      (message, context) => {
+        // 仅支持编辑自己发送的文本消息
+        if (!message.send) {
+          return null;
+        }
+        if (message.messageID == "") {
+          return null;
+        }
+        if (message.contentType !== MessageContentType.text) {
+          return null;
+        }
+        if ((message as any)?.isDeleted) {
+          return null;
+        }
+        const revoke = (message as any)?.remoteExtra?.revoke;
+        if (revoke === 1 || revoke === true) {
+          return null;
+        }
+        return {
+          title: "编辑",
+          onClick: () => {
+            context.reply(message, 2);
+          },
+        };
+      },
+      2500
+    );
+    WKApp.endpoints.registerMessageContextMenus(
+      "contextmenus.pin",
+      (message, context) => {
+        if (message.messageID == "") {
+          return null;
+        }
+        if ((message as any)?.isDeleted) {
+          return null;
+        }
+        const revoke = (message as any)?.remoteExtra?.revoke;
+        if (revoke === 1 || revoke === true) {
+          return null;
+        }
+        const isPinned = (message as any)?.remoteExtra?.isPinned === 1 || (message as any)?.remoteExtra?.isPinned === true;
+        return {
+          title: isPinned ? "取消置顶" : "置顶",
+          onClick: () => {
+            try {
+              if (!message.messageSeq || message.messageSeq <= 0) {
+                Toast.error("该消息未同步，暂不支持置顶")
+                return
+              }
+              const pinFn = (context as any)?.pinMessage
+              if (typeof pinFn !== "function") {
+                Toast.error("当前版本不支持置顶")
+                return
+              }
+              const p = pinFn.call(context, message)
+              if (p && typeof (p as any).catch === "function") {
+                ;(p as any).catch((err: any) => {
+                  Toast.error(err?.msg || err?.message || "操作失败")
+                })
+              }
+            } catch (err: any) {
+              Toast.error(err?.message || "操作失败")
+            }
+          },
+        };
+      },
+      2600
     );
     WKApp.endpoints.registerMessageContextMenus(
       "contextmenus.muli",
@@ -804,6 +1272,249 @@ export default class BaseModule implements IModule {
       }
     );
 
+    // 群成员禁言（单人）- 放在“查看用户信息”里，方便快捷操作
+    WKApp.shared.userInfoRegister(
+      "userinfo.group.forbidden",
+      (context: RouteContext<UserInfoRouteData>) => {
+        const data = context.routeData();
+        if (data.isSelf) {
+          return;
+        }
+
+        const fromChannel = data.fromChannel;
+        const targetSubscriber = data.fromSubscriberOfUser;
+        if (!fromChannel || fromChannel.channelType === ChannelTypePerson) {
+          return;
+        }
+        if (!targetSubscriber) {
+          return;
+        }
+
+        const toRoleNumber = (role: any): number | undefined => {
+          if (role === 0) return 0;
+          if (!role) return undefined;
+          if (typeof role === "number") return role;
+          if (typeof role === "string") {
+            const n = parseInt(role, 10);
+            return Number.isFinite(n) ? n : undefined;
+          }
+          return undefined;
+        };
+
+        const subscribers =
+          WKSDK.shared().channelManager.getSubscribes(fromChannel) || [];
+        const me = subscribers.find((s) => s.uid === WKApp.loginInfo.uid);
+        const myRole = toRoleNumber((me as any)?.role);
+        const targetRole = toRoleNumber((targetSubscriber as any)?.role);
+        const now = Math.floor(Date.now() / 1000);
+
+        const isVirtual = () => {
+          const raw = (targetSubscriber as any)?.orgData?.is_virtual;
+          if (raw === 1 || raw === true) return true;
+          if (typeof raw === "string") {
+            const n = parseInt(raw, 10);
+            return Number.isFinite(n) ? n === 1 : false;
+          }
+          return false;
+        };
+
+        const getForbiddenUntilSec = (): number => {
+          const raw =
+            (targetSubscriber as any)?.orgData?.forbidden_expir_time ||
+            (targetSubscriber as any)?.orgData?.forbiddenExpirationTime ||
+            (targetSubscriber as any)?.orgData?.forbidden_expiration_time;
+          if (!raw) return 0;
+          const value = typeof raw === "string" ? parseInt(raw, 10) : raw;
+          if (!value) return 0;
+          // 兼容 ms/秒
+          const sec = value > 1e12 ? Math.floor(value / 1000) : value;
+          return typeof sec === "number" && Number.isFinite(sec) ? sec : 0;
+        };
+
+        const forbiddenUntil = getForbiddenUntilSec();
+        const forbidden = forbiddenUntil > now;
+
+        const myIsManagerOrOwner =
+          myRole === GroupRole.owner || myRole === GroupRole.manager;
+        if (!myIsManagerOrOwner) {
+          return;
+        }
+        // 不能操作自己
+        if (data.uid === WKApp.loginInfo.uid) {
+          return;
+        }
+        // 虚拟/机器人禁用
+        const isRobot =
+          (targetSubscriber as any)?.orgData?.robot === 1 ||
+          (targetSubscriber as any)?.robot === 1;
+        if (isVirtual() || isRobot) {
+          return;
+        }
+        // 管理员不能操作管理员/群主
+        if (myRole === GroupRole.manager) {
+          if (targetRole === GroupRole.owner || targetRole === GroupRole.manager) {
+            return;
+          }
+        }
+
+        const formatForbiddenTime = (sec: number) => {
+          if (!sec) return "";
+          try {
+            return new Date(sec * 1000).toLocaleString();
+          } catch {
+            return "";
+          }
+        };
+
+        const openForbiddenTimesModal = async () => {
+          const options = await WKApp.dataSource.channelDataSource
+            .forbiddenTimes()
+            .catch((err) => {
+              Toast.error(err?.msg || "获取禁言时长失败");
+              return [];
+            });
+          if (!options || options.length === 0) {
+            return;
+          }
+          WKApp.shared.baseContext.showGlobalModal({
+            width: "380px",
+            closable: true,
+            onCancel: () => {
+              WKApp.shared.baseContext.hideGlobalModal();
+            },
+            body: (
+              <div className="wk-userinfo-forbidden-modal">
+                <div className="wk-userinfo-forbidden-modal-title">选择禁言时长</div>
+                <div className="wk-userinfo-forbidden-modal-options">
+                  {options.map((opt) => {
+                    const key =
+                      typeof (opt as any).key === "string"
+                        ? parseInt((opt as any).key, 10)
+                        : (opt as any).key;
+                    return (
+                      <div
+                        key={opt.key}
+                        className="wk-userinfo-forbidden-modal-option"
+                        onClick={async () => {
+                          await WKApp.dataSource.channelDataSource
+                            .forbiddenWithMember(fromChannel, {
+                              memberUID: data.uid,
+                              action: 1,
+                              key,
+                            })
+                            .then(() => {
+                              Toast.success("已禁言");
+                              WKApp.shared.baseContext.hideGlobalModal();
+                              WKSDK.shared().channelManager.syncSubscribes(fromChannel);
+                              data.refresh?.();
+                            })
+                            .catch((err) => {
+                              Toast.error(err?.msg || "禁言失败");
+                            });
+                        }}
+                      >
+                        {opt.text}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ),
+          });
+        };
+
+        const rows: Row[] = [];
+        if (forbidden) {
+          rows.push(
+            new Row({
+              cell: ListItem,
+              properties: {
+                title: "解除禁言",
+                subTitle: forbiddenUntil ? `禁言至 ${formatForbiddenTime(forbiddenUntil)}` : undefined,
+                onClick: async () => {
+                  await WKApp.dataSource.channelDataSource
+                    .forbiddenWithMember(fromChannel, {
+                      memberUID: data.uid,
+                      action: 0,
+                    })
+                    .then(() => {
+                      Toast.success("已解除禁言");
+                      WKSDK.shared().channelManager.syncSubscribes(fromChannel);
+                      data.refresh?.();
+                    })
+                    .catch((err) => {
+                      Toast.error(err?.msg || "解除禁言失败");
+                    });
+                },
+              },
+            })
+          );
+          rows.push(
+            new Row({
+              cell: ListItem,
+              properties: {
+                title: "延长禁言",
+                onClick: openForbiddenTimesModal,
+              },
+            })
+          );
+        } else {
+          rows.push(
+            new Row({
+              cell: ListItem,
+              properties: {
+                title: "禁言10分钟",
+                onClick: async () => {
+                  const options = await WKApp.dataSource.channelDataSource
+                    .forbiddenTimes()
+                    .catch((err) => {
+                      Toast.error(err?.msg || "获取禁言时长失败");
+                      return [];
+                    });
+                  if (!options || options.length === 0) {
+                    return;
+                  }
+                  const tenMin =
+                    options.find((o) => String((o as any).key) === "2") || options[0];
+                  const key =
+                    typeof (tenMin as any).key === "string"
+                      ? parseInt((tenMin as any).key, 10)
+                      : (tenMin as any).key;
+                  await WKApp.dataSource.channelDataSource
+                    .forbiddenWithMember(fromChannel, {
+                      memberUID: data.uid,
+                      action: 1,
+                      key,
+                    })
+                    .then(() => {
+                      Toast.success("已禁言");
+                      WKSDK.shared().channelManager.syncSubscribes(fromChannel);
+                      data.refresh?.();
+                    })
+                    .catch((err) => {
+                      Toast.error(err?.msg || "禁言失败");
+                    });
+                },
+              },
+            })
+          );
+          rows.push(
+            new Row({
+              cell: ListItem,
+              properties: {
+                title: "选择禁言时长",
+                onClick: openForbiddenTimesModal,
+              },
+            })
+          );
+        }
+
+        return new Section({
+          rows,
+        });
+      }
+    );
+
     WKApp.shared.userInfoRegister(
       "userinfo.source",
       (context: RouteContext<UserInfoRouteData>) => {
@@ -941,6 +1652,7 @@ export default class BaseModule implements IModule {
             properties: {
               context: context,
               channel: channel,
+              visible: !!data.visible,
               key: channel.getChannelKey(),
               onAdd: () => {
                 context.push(
@@ -956,35 +1668,39 @@ export default class BaseModule implements IModule {
                     showFinishButton: true,
                     onFinish: async () => {
                       addFinishButtonContext.loading(true);
+                      try {
+                        if (channel.channelType === ChannelTypePerson) {
+                          const uids = new Array();
+                          uids.push(WKApp.loginInfo.uid || "");
+                          uids.push(channel.channelID);
+                          for (const item of addSelectItems) {
+                            uids.push(item.id);
+                          }
 
-                      if (channel.channelType === ChannelTypePerson) {
-                        const uids = new Array();
-                        uids.push(WKApp.loginInfo.uid || "");
-                        uids.push(channel.channelID);
-                        for (const item of addSelectItems) {
-                          uids.push(item.id);
-                        }
-
-                        const result = await WKApp.dataSource.channelDataSource
-                          .createChannel(uids)
-                          .catch((err) => {
-                            Toast.error(err.msg);
-                          });
-                        if (result) {
-                          WKApp.endpoints.showConversation(
-                            new Channel(result.group_no, ChannelTypeGroup)
+                          const result = await WKApp.dataSource.channelDataSource
+                            .createChannel(uids)
+                            .catch((err) => {
+                              Toast.error(err?.msg || "创建群失败");
+                            });
+                          if (result) {
+                            WKApp.endpoints.showConversation(
+                              new Channel(result.group_no, ChannelTypeGroup)
+                            );
+                          }
+                        } else {
+                          await WKApp.dataSource.channelDataSource.addSubscribers(
+                            channel,
+                            addSelectItems.map((item) => {
+                              return item.id;
+                            })
                           );
+                          context.pop();
                         }
-                      } else {
-                        await WKApp.dataSource.channelDataSource.addSubscribers(
-                          channel,
-                          addSelectItems.map((item) => {
-                            return item.id;
-                          })
-                        );
-                        context.pop();
+                      } catch (err: any) {
+                        Toast.error(err?.msg || "添加失败");
+                      } finally {
+                        addFinishButtonContext.loading(false);
                       }
-                      addFinishButtonContext.loading(false);
                     },
                     onFinishContext: (context) => {
                       addFinishButtonContext = context;
@@ -994,6 +1710,10 @@ export default class BaseModule implements IModule {
                 );
               },
               onRemove: () => {
+                const removeDisableSelectList: string[] = [];
+                if (WKApp.loginInfo.uid) {
+                  removeDisableSelectList.push(WKApp.loginInfo.uid);
+                }
                 context.push(
                   <SubscriberList
                     channel={channel}
@@ -1002,6 +1722,8 @@ export default class BaseModule implements IModule {
                       removeFinishButtonContext.disable(items.length === 0);
                     }}
                     canSelect={true}
+                    myRole={data.subscriberOfMe?.role}
+                    disableSelectList={removeDisableSelectList}
 
                   ></SubscriberList>,
                   {
@@ -1009,17 +1731,19 @@ export default class BaseModule implements IModule {
                     showFinishButton: true,
                     onFinish: async () => {
                       removeFinishButtonContext.loading(true);
-                      WKApp.dataSource.channelDataSource.removeSubscribers(
-                        channel,
-                        removeSelectItems.map((item) => {
-                          return item.uid;
-                        })
-                      ).then(() => {
-                        removeFinishButtonContext.loading(false);
+                      try {
+                        await WKApp.dataSource.channelDataSource.removeSubscribers(
+                          channel,
+                          removeSelectItems.map((item) => {
+                            return item.uid;
+                          })
+                        );
                         context.pop();
-                      }).catch((err) => {
-                        Toast.error(err.msg);
-                      });
+                      } catch (err: any) {
+                        Toast.error(err?.msg || "删除失败");
+                      } finally {
+                        removeFinishButtonContext.loading(false);
+                      }
 
                     },
                     onFinishContext: (context) => {
@@ -1209,6 +1933,20 @@ export default class BaseModule implements IModule {
                     }
                   })
                 },
+              },
+            }),
+            new Row({
+              cell: MediaSummary,
+              properties: {
+                channel,
+                type: "image",
+              },
+            }),
+            new Row({
+              cell: MediaSummary,
+              properties: {
+                channel,
+                type: "video",
               },
             }),
           ],

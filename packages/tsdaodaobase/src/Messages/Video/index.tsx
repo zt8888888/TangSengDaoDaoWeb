@@ -1,11 +1,12 @@
-import { MessageContent } from "wukongimjssdk";
+import { MediaMessageContent } from "wukongimjssdk";
 import React from "react";
 import WKApp from "../../App";
 import MessageBase from "../Base";
 import { MessageCell } from "../MessageCell";
 import "./index.css"
+import { MessageContentTypeConst } from "../../Service/Const";
 
-export class VideoContent extends MessageContent {
+export class VideoContent extends MediaMessageContent {
     url!: string  // 小视频下载地址
     cover!: string // 小视频封面图片下载地址
     size: number = 0 // 小视频大小 单位byte
@@ -13,19 +14,32 @@ export class VideoContent extends MessageContent {
     height!: number // 小视频高度
     second!: number // 小视频秒长
 
+    constructor(file?: File, width?: number, height?: number, second?: number, size?: number) {
+        super()
+        this.file = file
+        this.width = width || 0
+        this.height = height || 0
+        this.second = second || 0
+        this.size = size || 0
+    }
+
     decodeJSON(content: any) {
-        this.url = content["url"] || 0
-        this.cover = content["cover"] || 0
+        this.url = content["url"] || ""
+        this.cover = content["cover"] || ""
         this.size = content["size"] || 0
         this.width = content["width"] || 0
         this.height = content["height"] || 0
         this.second = content["second"] || 0
+        this.remoteUrl = this.url
     }
 
     encodeJSON() {
-        return { "url": this.url || "", "cover": this.cover || "", "size": this.size || 0,"width":this.width||0,"height":this.height||0,"second":this.second||0 }
+        return { "url": this.url || this.remoteUrl || "", "cover": this.cover || "", "size": this.size || 0, "width": this.width || 0, "height": this.height || 0, "second": this.second || 0 }
     }
 
+    get contentType() {
+        return MessageContentTypeConst.smallVideo
+    }
 
     get conversationDigest() {
         return "[小视频]"
@@ -33,26 +47,7 @@ export class VideoContent extends MessageContent {
 
 }
 
-interface VideoCellState {
-    playProgress: number // 播放进度
-}
-
-export class VideoCell extends MessageCell<any, VideoCellState> {
-
-    constructor(props: any) {
-        super(props)
-        this.state = {
-            playProgress: 0,
-        }
-
-    }
-    componentDidMount() {
-
-
-    }
-
-    componentWillUnmount() {
-    }
+export class VideoCell extends MessageCell<any, any> {
 
     secondFormat(second: number): string {
 
@@ -101,27 +96,54 @@ export class VideoCell extends MessageCell<any, VideoCellState> {
     }
     render() {
         const { message, context } = this.props
-        const { playProgress } = this.state
         const content = message.content as VideoContent
         const actSize = this.videoScale(content.width, content.height)
+        const cover = WKApp.dataSource.commonDataSource.getImageURL(content.cover)
+        const videoURL = WKApp.dataSource.commonDataSource.getFileURL(content.url)
         return <MessageBase hiddeBubble={true} message={message} context={context}>
-
-            <div className="wk-message-video" style={{ width: actSize.width, height: '100%' }}>
-                <div className="wk-message-video-content">
-                    <span className="wk-message-video-content-time">{this.secondFormat(content.second - playProgress)}</span>
+            <div
+                className="wk-message-video"
+                style={{ width: actSize.width, height: actSize.height, cursor: "pointer", position: "relative" }}
+                onClick={() => {
+                    if (!videoURL) return
+                    WKApp.shared.baseContext.showGlobalModal({
+                        closable: false,
+                        className: "wk-base-modal wk-video-preview-modal",
+                        body: (
+                            <div
+                                className="wk-video-preview-overlay"
+                                onClick={() => {
+                                    WKApp.shared.baseContext.hideGlobalModal()
+                                }}
+                            >
+                                <div className="wk-video-preview" onClick={(e) => e.stopPropagation()}>
+                                    <div className="wk-video-preview-header">
+                                        <a
+                                            className="wk-video-preview-close"
+                                            onClick={() => {
+                                                WKApp.shared.baseContext.hideGlobalModal()
+                                            }}
+                                        >
+                                            关闭
+                                        </a>
+                                    </div>
+                                    <video className="wk-video-preview-player" controls autoPlay poster={cover}>
+                                        <source src={videoURL} type="video/mp4" />
+                                    </video>
+                                </div>
+                            </div>
+                        ),
+                        width: "auto",
+                        onCancel: () => {
+                            WKApp.shared.baseContext.hideGlobalModal()
+                        }
+                    })
+                }}
+            >
+                <div className="wk-message-video-content" style={{ position: "relative" }}>
+                    <span className="wk-message-video-content-time">{this.secondFormat(content.second)}</span>
                     <div className="wk-message-video-content-video">
-                        <video poster={WKApp.dataSource.commonDataSource.getImageURL(content.cover)} width={actSize.width} height={actSize.height} controls onTimeUpdate={(evet) => {
-                            const video = evet.target as HTMLVideoElement
-                            this.setState({
-                                playProgress: video.currentTime,
-                            })
-                        }} onEnded={() => {
-                            this.setState({
-                                playProgress: 0,
-                            })
-                        }}>
-                            <source src={WKApp.dataSource.commonDataSource.getFileURL(content.url)} type="video/mp4" />
-                        </video>
+                        <img src={cover} width={actSize.width} height={actSize.height} alt="" />
                     </div>
                 </div>
             </div>

@@ -1,0 +1,126 @@
+.wk-media-gallery {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.wk-media-gallery-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--semi-color-border);
+}
+
+.wk-media-gallery-grid {
+  padding: 12px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  grid-auto-rows: auto;
+  align-content: start;
+  gap: 8px;
+  overflow: auto;
+  flex: 1;
+}
+
+.wk-media-gallery-item {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--semi-color-fill-0);
+  cursor: pointer;
+}
+
+.wk-media-gallery-item img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.wk-media-gallery-item-badge {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  padding: 2px 6px;
+  border-radius: 12px;
+  font-size: 12px;
+}
+
+.wk-media-gallery-footer {
+  padding: 10px 0;
+  text-align: center;
+  color: var(--semi-color-text-2);
+}
+
+.wk-video-preview-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  z-index: 1000;
+}
+
+.wk-video-preview {
+  /* 固定大小播放窗口，所有视频统一尺寸；点全屏才铺满 */
+  width: min(75vw, 720px);
+  height: min(80vh, 600px);
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  background: #000;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.wk-video-preview-header {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: flex;
+  justify-content: flex-end;
+  padding: 8px 12px;
+  box-sizing: border-box;
+  z-index: 1;
+}
+
+.wk-video-preview-player {
+  /* 填满容器，保持比例居中 */
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+  border-radius: 0;
+  pointer-events: auto;
+}
+
+/* Fullscreen: avoid border-radius/overflow clipping native controls */
+.wk-video-preview-player:fullscreen {
+  width: 100vw;
+  height: 100vh;
+  max-width: 100vw;
+  max-height: 100vh;
+  border-radius: 0;
+  object-fit: contain;
+}
+
+.wk-video-preview-player:-webkit-full-screen {
+  width: 100vw;
+  height: 100vh;
+  max-width: 100vw;
+  max-height: 100vh;
+  border-radius: 0;
+  object-fit: contain;
+}

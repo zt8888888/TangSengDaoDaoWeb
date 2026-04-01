@@ -11,9 +11,11 @@ export class SubscriberListVM extends ProviderListener {
     limit: number = 50
     hasMore: boolean = true
     keyword: string = ""
-    constructor(channel: Channel) {
+    display?: boolean
+    constructor(channel: Channel, display?: boolean) {
         super()
         this.channel = channel
+        this.display = display
     }
 
     didMount(): void {
@@ -33,6 +35,7 @@ export class SubscriberListVM extends ProviderListener {
             page: this.currPage,
             limit: this.limit,
             keyword: this.keyword,
+            display: this.display,
         })
         this.hasMore = subscribers&&subscribers.length>=this.limit
         if (subscribers) {

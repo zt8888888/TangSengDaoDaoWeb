@@ -1,6 +1,6 @@
 import axios from "axios";
 import React, { Component } from "react";
-import { Button, Spin, Toast } from '@douyinfe/semi-ui';
+import { Button, Spin, Toast, Modal } from '@douyinfe/semi-ui';
 import './login.css'
 import QRCode from 'qrcode.react';
 import { WKApp, Provider } from "@tsdaodao/base"
@@ -13,9 +13,23 @@ type LoginState = {
     getLoginUUIDLoading: boolean
     scanner?: string  // 扫描者的uid
     qrcode?: string
+    registerVisible: boolean // 注册弹窗显示
+    registerName?: string
+    registerPassword?: string
+    registerNickName?: string
 }
 
 class Login extends Component<any, LoginState> {
+
+    constructor(props: any) {
+        super(props);
+        this.state = {
+            loginStatus: "",
+            loginUUID: "",
+            getLoginUUIDLoading: false,
+            registerVisible: false
+        }
+    }
 
 
 
@@ -25,53 +39,65 @@ class Login extends Component<any, LoginState> {
         return <Provider create={() => {
             return new LoginVM()
         }} render={(vm: LoginVM) => {
+            const doLogin = async () => {
+                if (vm.loginLoading) {
+                    return
+                }
+                if (!vm.username) {
+                    Toast.error("用户名不能为空！")
+                    return
+                }
+                if (!vm.password) {
+                    Toast.error("密码不能为空！")
+                    return
+                }
+                vm.requestLoginWithUsernameAndPwd(vm.username, vm.password).catch((err) => {
+                    Toast.error(err.msg)
+                })
+            }
             return <div className="wk-login">
                 <div className="wk-login-content">
                     <div className="wk-login-content-phonelogin" style={{ "display": vm.loginType === LoginType.phone ? "block" : "none" }}>
                         <div className="wk-login-content-logo">
-                            <img src={`${process.env.PUBLIC_URL}/logo.png`} alt="logo" />
+                            <img src={require("./assets/logo.png")} alt=""></img>
                         </div>
                         <div className="wk-login-content-slogan">
                             更愉快的与朋友交流
                         </div>
                         <div className="wk-login-content-form">
-                            <input type="text" placeholder="手机号" onChange={(v) => {
+                            <input type="text" placeholder="用户名" onChange={(v) => {
                                 vm.username = v.target.value
+                            }} onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                    void doLogin()
+                                }
                             }}></input>
                             <input type="password" placeholder="密码" onChange={(v) => {
                                 vm.password = v.target.value
+                            }} onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                    void doLogin()
+                                }
                             }}></input>
                             <div className="wk-login-content-form-buttons">
                                 <Button loading={vm.loginLoading} className="wk-login-content-form-ok" type='primary' theme='solid' onClick={async () => {
-                                    if (!vm.username) {
-                                        Toast.error("手机号不能为空！")
-                                        return
-                                    }
-                                    if (!vm.password) {
-                                        Toast.error("密码不能为空！")
-                                        return
-                                    }
-                                    let fullPhone = vm.username
-                                    if (vm.username.length == 11 && vm.username.substring(0,1) === "1") {
-                                        fullPhone = `0086${vm.username}`
-                                    }else {
-                                        if(vm.username.startsWith("+") ) {
-                                            fullPhone = `00${vm.username.substring(1)}`
-                                        }else if(!vm.username.startsWith("00")) {
-                                            fullPhone = `00${vm.username}`
-                                        }
-                                    }
-                                    vm.requestLoginWithUsernameAndPwd(fullPhone, vm.password).catch((err) => {
-                                        Toast.error(err.msg)
-                                    })
+                                    await doLogin()
                                 }}>登录</Button>
                             </div>
                             <div className="wk-login-content-form-others">
-                                <div className="wk-login-content-form-scanlogin" onClick={() => {
+                                <span className="wk-login-content-form-scanlogin" onClick={() => {
+                                    this.setState({
+                                        registerVisible: true
+                                    })
+                                }}>
+                                    注册账号
+                                </span>
+                                <span style={{margin:'0 10px', color:'#e0e0e0'}}>|</span>
+                                <span className="wk-login-content-form-scanlogin" onClick={() => {
                                     vm.loginType = LoginType.qrcode
                                 }}>
                                     扫描登录
-                                </div>
+                                </span>
                             </div>
                         </div>
                     </div>
@@ -118,23 +144,80 @@ class Login extends Component<any, LoginState> {
                         <div className="wk-login-footer-buttons">
                             <button onClick={() => {
                                 vm.loginType = LoginType.phone
-                            }}>使用手机号登录</button>
+                            }}>使用用户名登录</button>
                         </div>
 
                     </div>
 
-                    {/* <div className="wk-login-footer">
+                    <div className="wk-login-footer">
                         <ul>
-                            <li>注册唐僧叨叨</li>
-                            <li>忘记密码</li>
-                            <li>隐私政策</li>
-                            <li>用户协议</li>
-                            <li> © 上海信必达网络科技有限公司</li>
+                            <li style={{ cursor: 'pointer' }} onClick={() => {
+                                let url = WKApp.apiClient.config.apiURL
+                                if (url.indexOf("v1") !== -1) {
+                                    url = url.replace("v1/", "web/privacy_policy.html")
+                                } else {
+                                    url = url + "web/privacy_policy.html"
+                                }
+                                window.open(url)
+                            }}>隐私政策</li>
+                            <li style={{ cursor: 'pointer' }} onClick={() => {
+                                let url = WKApp.apiClient.config.apiURL
+                                if (url.indexOf("v1") !== -1) {
+                                    url = url.replace("v1/", "web/user_agreement.html")
+                                } else {
+                                    url = url + "web/user_agreement.html"
+                                }
+                                window.open(url)
+                            }}>用户协议</li>
+                            <li> © 裕民心安</li>
                         </ul>
 
-                    </div> */}
+                    </div>
                 </div>
-
+                <Modal centered title="注册账号" visible={this.state.registerVisible} onOk={() => {
+                    if(!this.state.registerName) {
+                        Toast.error("请输入用户名")
+                        return
+                    }
+                    if(!this.state.registerNickName) {
+                        Toast.error("请输入昵称")
+                        return
+                    }
+                    if(!this.state.registerPassword) {
+                        Toast.error("请输入密码")
+                        return
+                    }
+                    vm.requestRegister(this.state.registerName, this.state.registerPassword, this.state.registerNickName).then(()=>{
+                        Toast.success("注册成功")
+                        this.setState({
+                            registerVisible: false
+                        })
+                    }).catch((err)=>{
+                        Toast.error(err.msg)
+                    })
+                }} onCancel={() => {
+                    this.setState({
+                        registerVisible: false
+                    })
+                }}>
+                    <div style={{display:'flex', flexDirection:'column', gap:'10px'}}>
+                        <input className="wk-login-input" placeholder="请输入用户名" onChange={(e)=>{
+                            this.setState({
+                                registerName: e.target.value
+                            })
+                        }}></input>
+                        <input className="wk-login-input" placeholder="请输入昵称" onChange={(e)=>{
+                            this.setState({
+                                registerNickName: e.target.value
+                            })
+                        }}></input>
+                        <input className="wk-login-input" type="password" placeholder="请输入密码" onChange={(e)=>{
+                            this.setState({
+                                registerPassword: e.target.value
+                            })
+                        }}></input>
+                    </div>
+                </Modal>
 
             </div>
         }}>

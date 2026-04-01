@@ -109,6 +109,15 @@ export class LoginVM extends ProviderListener {
         this._pullErrCount = 0
     }
 
+    async requestRegister(name: string, password: string, nickname?: string) {
+        return WKApp.apiClient.post('user/register', {
+            "name": nickname || name,
+            "username": name,
+            "password": password,
+            "flag": 1 // 1.PC/Web
+        })
+    }
+
     async requestLogin(authCode: string) {
         if (this.loginLoading) {
             return

@@ -9,11 +9,13 @@ import {
   Menu,
   Tray,
   nativeImage,
+  clipboard,
 } from "electron";
 import fs from "fs";
 import tmp from 'tmp';
 import Screenshots from "electron-screenshots";
 import { join } from "path";
+import logger from "electron-log";
 
 import logo, { getNoMessageTrayIcon } from "./logo";
 import TSDD_FONFIG from "./confing";
@@ -36,13 +38,97 @@ let isWin = !isOsx;
 
 const isDevelopment = process.env.NODE_ENV !== "production";
 
+function getBuildIndexHtmlPath() {
+  process.env.DIST_ELECTRON = join(__dirname, "../");
+  return join(process.env.DIST_ELECTRON, "../build/index.html");
+}
+
+function attachWindowTroubleshooting(win: BrowserWindow, name: string) {
+  const wc = win.webContents;
+
+  let didFinishLoad = false;
+  const startedAt = Date.now();
+
+  const loadWatchdog = setTimeout(() => {
+    if (didFinishLoad) return;
+    const ms = Date.now() - startedAt;
+    logger.warn(`[${name}] load watchdog fired after ${ms}ms, url=${wc.getURL()}`);
+    try {
+      wc.reload();
+    } catch (e) {
+      logger.error(`[${name}] reload failed`, e);
+    }
+  }, 15_000);
+
+  wc.on("did-finish-load", () => {
+    didFinishLoad = true;
+    clearTimeout(loadWatchdog);
+    logger.info(`[${name}] did-finish-load url=${wc.getURL()}`);
+  });
+
+  wc.on(
+    "did-fail-load",
+    (
+      _event,
+      errorCode,
+      errorDescription,
+      validatedURL,
+      isMainFrame
+    ) => {
+      if (!isMainFrame) return;
+      clearTimeout(loadWatchdog);
+      logger.error(
+        `[${name}] did-fail-load code=${errorCode} desc=${errorDescription} url=${validatedURL}`
+      );
+
+      // 兜底：展示一个可见的错误页，避免用户看到纯白。
+      const html = `<!doctype html><html><head><meta charset="utf-8" /><title>加载失败</title></head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial; padding: 24px;">
+<h2 style="margin:0 0 12px;">页面加载失败</h2>
+<div style="color:#666; line-height: 1.6;">
+  <div>错误：${String(errorDescription).replace(/</g, "&lt;")}</div>
+  <div>代码：${errorCode}</div>
+  <div style="margin-top:10px;">你可以尝试：关闭并重新打开客户端。</div>
+  <div style="margin-top:10px;">日志位置（用于反馈给我们排查）：<b>${app.getPath(
+    "logs"
+  ).replace(/</g, "&lt;")}</b></div>
+</div>
+</body></html>`;
+
+      try {
+        win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+      } catch (e) {
+        logger.error(`[${name}] load fallback page failed`, e);
+      }
+    }
+  );
+
+  wc.on("render-process-gone", (_event, details) => {
+    logger.error(`[${name}] render-process-gone reason=${details.reason} exitCode=${details.exitCode}`);
+    // 常见白屏来源：渲染进程崩溃/被系统杀掉。这里做一次温和重载。
+    setTimeout(() => {
+      try {
+        if (!win.isDestroyed()) {
+          wc.reload();
+        }
+      } catch (e) {
+        logger.error(`[${name}] reload after render-process-gone failed`, e);
+      }
+    }, 800);
+  });
+
+  wc.on("unresponsive", () => {
+    logger.warn(`[${name}] webContents unresponsive url=${wc.getURL()}`);
+  });
+}
+
 
 let mainMenu: (Electron.MenuItemConstructorOptions | Electron.MenuItem)[] = [
   {
-    label: "唐僧叨叨",
+    label: "裕民心安",
     submenu: [
       {
-        label: `关于唐僧叨叨`,
+        label: `关于裕民心安`,
       },
       { label: "服务", role: "services" },
       { type: "separator" },
@@ -305,7 +391,7 @@ function regShortcut() {
 }
 
 // 创建新窗口的通用配置
-const getWindowConfig = () => {
+const getWindowConfig = (sid: string) => {
   return {
     width: 1200,
     height: 800,
@@ -323,6 +409,8 @@ const getWindowConfig = () => {
       // 加载脚本
       preload: join(__dirname, "..", "preload/index"),
       nodeIntegration: true,
+      // 多开隔离：每个窗口独立存储/缓存，避免多窗口并发导致 IndexedDB/LocalStorage 互相踩踏出现“偶发白屏”。
+      partition: sid ? `persist:tsdd-${sid}` : undefined,
     },
     // frame: !isWin,
   };
@@ -331,7 +419,8 @@ const getWindowConfig = () => {
 // 创建新窗口
 const createNewWindow = () => {
   const NODE_ENV = process.env.NODE_ENV;
-  const newWindow = new BrowserWindow(getWindowConfig());
+  const sid = getRandomSid();
+  const newWindow = new BrowserWindow(getWindowConfig(sid));
 
   newWindow.center();
   newWindow.once("ready-to-show", () => {
@@ -345,12 +434,13 @@ const createNewWindow = () => {
   });
 
   // 加载相同的页面
+  attachWindowTroubleshooting(newWindow, `newWindow:${sid}`);
+
   if (NODE_ENV == "development") {
-    newWindow.loadURL("http://localhost:3000?sid=" + getRandomSid());
+    newWindow.loadURL("http://localhost:3000?sid=" + sid);
   } else {
-    process.env.DIST_ELECTRON = join(__dirname, "../");
-    const WEB_URL = join(process.env.DIST_ELECTRON, "../build/index.html");
-    newWindow.loadFile(WEB_URL, { query: { sid: getRandomSid() } });
+    const WEB_URL = getBuildIndexHtmlPath();
+    newWindow.loadFile(WEB_URL, { query: { sid } });
   }
 
   // 为新窗口设置菜单（Windows 需要）
@@ -364,7 +454,8 @@ const createNewWindow = () => {
 
 const createMainWindow = async () => {
   const NODE_ENV = process.env.NODE_ENV;
-  mainWindow = new BrowserWindow(getWindowConfig());
+  const sid = getRandomSid();
+  mainWindow = new BrowserWindow(getWindowConfig(sid));
   mainWindow.center();
   mainWindow.once("ready-to-show", () => {
     mainWindow.show(); // 显示窗口
@@ -384,11 +475,12 @@ const createMainWindow = async () => {
       }
     }
   });
-  if (NODE_ENV === "development") mainWindow.loadURL("http://localhost:3000");
+  attachWindowTroubleshooting(mainWindow, `mainWindow:${sid}`);
+
+  if (NODE_ENV === "development") mainWindow.loadURL("http://localhost:3000?sid=" + sid);
   if (NODE_ENV !== "development") {
-    process.env.DIST_ELECTRON = join(__dirname, "../");
-    const WEB_URL = join(process.env.DIST_ELECTRON, "../build/index.html");
-    mainWindow.loadFile(WEB_URL, { query: { sid: getRandomSid() } });
+    const WEB_URL = getBuildIndexHtmlPath();
+    mainWindow.loadFile(WEB_URL, { query: { sid } });
   }
 
   ipcMain.on("screenshots-start", (event, args) => {
@@ -436,6 +528,40 @@ const createMainWindow = async () => {
 
     return true;
   });
+
+  ipcMain.handle(
+    "clipboard:writeImage",
+    async (_event, payload?: { data?: ArrayBuffer | Uint8Array | number[] }) => {
+      try {
+        const data: any = payload?.data;
+        if (!data) {
+          throw new Error("missing image data");
+        }
+
+        let buf: Buffer;
+        if (data instanceof ArrayBuffer) {
+          buf = Buffer.from(new Uint8Array(data));
+        } else if (ArrayBuffer.isView(data)) {
+          buf = Buffer.from(data as Uint8Array);
+        } else if (Array.isArray(data)) {
+          buf = Buffer.from(data);
+        } else if (data?.type === "Buffer" && Array.isArray(data?.data)) {
+          buf = Buffer.from(data.data);
+        } else {
+          throw new Error("invalid image data");
+        }
+
+        const img = nativeImage.createFromBuffer(buf);
+        if (img.isEmpty()) {
+          throw new Error("invalid image buffer");
+        }
+        clipboard.writeImage(img);
+        return { ok: true };
+      } catch (e: any) {
+        return { ok: false, error: e?.message || String(e) };
+      }
+    }
+  );
 
   createMenu();
 
@@ -489,7 +615,7 @@ app.on("ready", () => {
   createMainWindow(); // 创建窗口
 
   if (isWin) {
-    app.setAppUserModelId("唐僧叨叨");
+    app.setAppUserModelId("裕民心安");
   }
 
   screenshots = new Screenshots({

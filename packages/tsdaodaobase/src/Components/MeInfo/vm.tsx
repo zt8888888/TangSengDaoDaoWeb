@@ -18,6 +18,7 @@ export class MeInfoVM extends ProviderListener {
     channelInfoListener!:ChannelInfoListener
 
     didMount(): void {
+        this.getInviteCode()
         this.channelInfoListener = (channelInfo:ChannelInfo)=>{
             if(channelInfo.channel.channelType !== ChannelTypePerson) {
                 return
@@ -32,6 +33,14 @@ export class MeInfoVM extends ProviderListener {
             this.notifyListener()
         }
         WKSDK.shared().channelManager.addListener(this.channelInfoListener)
+    }
+
+    inviteCode?:string
+    getInviteCode() {
+        WKApp.apiClient.get("invite").then((res:any)=>{
+            this.inviteCode = res.invite_code
+            this.notifyListener()
+        })
     }
 
     didUnMount(): void {
@@ -125,6 +134,23 @@ export class MeInfoVM extends ProviderListener {
                         subTitle: WKApp.loginInfo.shortNo,
                         onClick: () => {
 
+                        }
+                    }
+                }),
+                new Row({
+                    cell: ListItem,
+                    properties: {
+                        title: `我的邀请码`,
+                        subTitle: this.inviteCode,
+                        onClick: () => {
+                            const inviteCode = this.inviteCode;
+                            if (inviteCode) {
+                                navigator.clipboard.writeText(inviteCode).then(() => {
+                                    Toast.success("邀请码已复制到剪贴板");
+                                }).catch(() => {
+                                    Toast.error("复制失败，请手动复制");
+                                });
+                            }
                         }
                     }
                 }),

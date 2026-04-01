@@ -92,6 +92,10 @@ export class Conversation extends Component<ConversationProps> implements Conver
     editMessage(messageID: String, messageSeq: number, channelID: String, channelType: number, content: String): Promise<void> {
         return this.vm.editMessage(messageID, messageSeq, channelID, channelType, content)
     }
+
+    pinMessage(message: Message): Promise<void> {
+        return this.vm.pinMessage(message)
+    }
     onTapAvatar(uid: string, event: React.MouseEvent<Element, MouseEvent>): void {
 
         this.vm.selectUID = uid
@@ -116,6 +120,13 @@ export class Conversation extends Component<ConversationProps> implements Conver
             }
             return
         })
+    }
+
+    getPinnedDigest(message?: Message) {
+        if (!message) {
+            return "置顶消息"
+        }
+        return message.remoteExtra?.isEdit ? message.remoteExtra?.contentEdit?.conversationDigest : message.content.conversationDigest
     }
 
     // 显示用户信息
@@ -213,6 +224,10 @@ export class Conversation extends Component<ConversationProps> implements Conver
 
 
     markConversationExtra() {
+        // 退出登录/Token 被清理后，不再提交会话 extra，避免 401 风暴与未捕获 Promise 报错
+        if (!WKApp.shared.isLogined()) {
+            return
+        }
         let draft = this.messageInputContext().text()
         const conversationLastMessageSeq = this.vm.conversationLastMessageSeq()
         const lastVisiableMessage = this.lastVisiableMessage(null)
@@ -231,6 +246,8 @@ export class Conversation extends Component<ConversationProps> implements Conver
             keepOffsetY: 0,
             draft: draft || "",
             version: 0,
+        }).catch(() => {
+            // ignore: 页面卸载/登出过程中允许失败
         })
     }
 
@@ -496,8 +513,13 @@ export class Conversation extends Component<ConversationProps> implements Conver
             this.vm = new ConversationVM(channel, initLocateMessageSeq)
             return this.vm
         }} render={(vm: ConversationVM) => {
+            const activePinnedMessages = vm.getActivePinnedMessages()
+            const pinnedItem = activePinnedMessages.length > 0 ? activePinnedMessages[Math.min(Math.max(vm.pinnedActiveIndex || 0, 0), activePinnedMessages.length - 1)] : undefined
+            const pinnedMessage = pinnedItem?.message || (pinnedItem ? vm.findMessageWithMessageID(pinnedItem.messageID)?.message : undefined)
+            const pinnedDigest = this.getPinnedDigest(pinnedMessage)
+
             return <>
-                <div className={classNames("wk-conversation", vm.fileDragEnter ? "wk-conversation-dragover" : undefined, vm.currentReplyMessage ? "wk-conversation-hasreply" : undefined)} style={{ "background": chatBg ? `url(${chatBg}) rgb(245, 247, 249)` : undefined }}>
+                <div className={classNames("wk-conversation", vm.fileDragEnter ? "wk-conversation-dragover" : undefined, vm.currentReplyMessage ? "wk-conversation-hasreply" : undefined, activePinnedMessages.length > 0 ? "wk-conversation-haspinned" : undefined)} style={{ "background": chatBg ? `url(${chatBg}) rgb(245, 247, 249)` : undefined }}>
 
                     <div onDragOver={(event) => {
                         event.preventDefault()
@@ -506,6 +528,25 @@ export class Conversation extends Component<ConversationProps> implements Conver
                         this.dragStart()
 
                     }} className={classNames("wk-conversation-content")}>
+                        {
+                            activePinnedMessages.length > 0 ? <div className="wk-conversation-pinned">
+                                <div className="wk-conversation-pinned-title">
+                                    <span>置顶消息 · {activePinnedMessages.length}</span>
+                                    {
+                                        activePinnedMessages.length > 1 ? <span className="wk-conversation-pinned-next" onClick={(e) => {
+                                            e.preventDefault()
+                                            e.stopPropagation()
+                                            vm.cyclePinnedMessage()
+                                        }}>›</span> : undefined
+                                    }
+                                </div>
+                                <div className="wk-conversation-pinned-content" onClick={() => {
+                                    if (pinnedItem) {
+                                        this.locateMessage(pinnedItem.messageSeq)
+                                    }
+                                }}>{pinnedDigest || "置顶消息"}</div>
+                            </div> : undefined
+                        }
                         <div className="wk-conversation-messages" id={vm.messageContainerId} onScroll={this.handleScroll.bind(this)}>
                             {
                                 vm.messages.map((message, i) => {
@@ -883,7 +924,7 @@ class MultiplePanel extends Component<MultiplePanelProps> {
                     }
                 }}>
                     <div className="wk-multiplepanel-content-item-icon">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 14 4 9 9 4"></polyline><path d="M20 20v-7a4 4 0 0 0-4-4H4"></path></svg>                    </div>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 14 4 9 9 4"></polyline><path d="M20 20v-7a4 4 0 0 0-4-4H4"></path></svg>                    </div>
                     <div className="wk-multiplepanel-content-item-title">
                         逐条转发
                     </div>
@@ -906,7 +947,7 @@ class MultiplePanel extends Component<MultiplePanelProps> {
                     }
                 }}>
                     <div className="wk-multiplepanel-content-item-icon">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>                    </div>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>                    </div>
                     <div className="wk-multiplepanel-content-item-title">
                         删除
                     </div>

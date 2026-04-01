@@ -17,12 +17,14 @@ export interface RoutePageState {
 export interface RoutePageProps{
     title?: string
     onClose?: () => void
+    enableEsc?: boolean
     render: (context: RouteContext<any>) => React.ReactNode
 }
 
 export default class RoutePage extends Component<RoutePageProps, RoutePageState> implements RouteContext<any>, FinishButtonContext {
     private _routeData: any
     viewQueueContext!: WKViewQueueContext
+    private keydownListener?: (e: KeyboardEvent) => void
     constructor(props: any) {
         super(props)
         this.state = {
@@ -89,9 +91,31 @@ export default class RoutePage extends Component<RoutePageProps, RoutePageState>
     }
 
     componentWillUnmount() {
+        if (this.keydownListener) {
+            window.removeEventListener("keydown", this.keydownListener, true)
+        }
         this.setState = (state,callback) => {
             return
         }
+    }
+
+    componentDidMount() {
+        this.keydownListener = (e: KeyboardEvent) => {
+            if (e.key !== "Escape") return
+            if (e.defaultPrevented) return
+            if (this.props.enableEsc === false) return
+            const { pushViewCount } = this.state
+            if (pushViewCount > 0) {
+                e.preventDefault()
+                this.pop()
+                return
+            }
+            if (this.props.onClose) {
+                e.preventDefault()
+                this.props.onClose()
+            }
+        }
+        window.addEventListener("keydown", this.keydownListener, true)
     }
 
     render() {

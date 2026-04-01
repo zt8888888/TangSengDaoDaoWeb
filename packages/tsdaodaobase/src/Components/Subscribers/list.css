@@ -19,16 +19,79 @@
     text-overflow: ellipsis;
     overflow: hidden;
     white-space: nowrap;
-    max-width: 10rem;
+    flex: 1;
+    min-width: 0;
 }
 
 .wk-subscrierlist-item-content {
     display: flex;
     width: 100%;
     justify-content: space-between;
+    align-items: center;
+}
+
+.wk-subscrierlist-item-main {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-width: 0;
 }
 
 .wk-subscrierlist-item-desc {
     font-size: 14px;
     color: #666;
+}
+
+.wk-subscrierlist-item-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.wk-subscrierlist-item-role {
+    font-size: 12px;
+    color: #999;
+}
+
+.wk-subscrierlist-item-action {
+    font-size: 12px;
+    color: #1c7efb;
+    cursor: pointer;
+}
+
+.wk-subscrierlist-item-action-danger {
+    color: #e45858;
+}
+
+.wk-forbidden-modal {
+    padding: 0.5rem 0;
+}
+
+.wk-forbidden-modal-title {
+    font-size: 16px;
+    font-weight: 500;
+    margin-bottom: 0.75rem;
+}
+
+.wk-forbidden-modal-options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.wk-forbidden-modal-option {
+    padding: 0.4rem 0.75rem;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    color: #333;
+    background: #fff;
+}
+
+.wk-forbidden-modal-option:hover {
+    border-color: #1c7efb;
+    color: #1c7efb;
 }

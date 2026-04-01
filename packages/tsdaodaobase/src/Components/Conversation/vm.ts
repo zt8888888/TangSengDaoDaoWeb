@@ -1,6 +1,6 @@
 import { Channel, ChannelTypeGroup, ChannelTypePerson, ConversationAction, WKSDK, Message, MessageContent, MessageStatus, Subscriber, Conversation, MessageExtra, CMDContent, PullMode, MessageContentType, ChannelInfo, ConversationListener } from "wukongimjssdk";
 import WKApp from "../../App";
-import { SyncMessageOptions } from "../../Service/DataSource/DataProvider";
+import { SyncMessageOptions, PinnedMessageItem, SyncPinnedMessagesResult } from "../../Service/DataSource/DataProvider";
 import { MessageWrap } from "../../Service/Model";
 import { ProviderListener } from "../../Service/Provider";
 import { animateScroll, scroller } from 'react-scroll';
@@ -23,6 +23,8 @@ export default class ConversationVM extends ProviderListener {
     messages: MessageWrap[] = [] // 消息集合 
     currentConversation?: Conversation // 当前最近会话
     messagesOfOrigin: MessageWrap[] = [] // 原始消息集合（不包含时间消息等本地消息）
+    pinnedMessages: PinnedMessageItem[] = [] // 置顶消息集合
+    pinnedActiveIndex: number = 0 // 置顶消息轮播索引
     browseToMessageSeq: number = 0 //  已经预览到的最新的messageSeq
     initLocateMessageSeq?: number = 0 // 初始定位的消息messageSeq 0为不定位
     shouldShowHistorySplit: boolean = false // 是否应该显示历史消息分割线
@@ -34,6 +36,7 @@ export default class ConversationVM extends ProviderListener {
     pulldownFinished: boolean = false // 下拉完成
     messageContainerId = "viewport" // 消息容器的ID
     static sendQueue: Map<string, Array<MessageWrap>> = new Map() // 发送队列
+    private static globalAckListenerRegistered = false // 全局 ACK 监听是否已注册
     private _needSetUnread: boolean = false // 是否需要设置未读数量
 
     typingListener!: TypingListener // 输入中监听
@@ -56,6 +59,9 @@ export default class ConversationVM extends ProviderListener {
     private _currentReplyMessage?: Message // 当前回复的消息
     private _currentHandlerType: number = 0 // 当前处理类型
     onFirstMessagesLoaded?: Function // 第一屏消息已加载完成
+
+    private messageExtraSyncTimer?: number
+    private messageExtraSyncing: boolean = false
 
     constructor(channel: Channel, initLocateMessageSeq?: number) {
         super()
@@ -198,7 +204,108 @@ export default class ConversationVM extends ProviderListener {
 
     // 编辑消息
     async editMessage(messageID: String, messageSeq: number, channelID: String, channelType: number, content: String): Promise<void> {
-        return WKApp.conversationProvider.editMessage(messageID, messageSeq, channelID, channelType, content)
+        await WKApp.conversationProvider.editMessage(messageID, messageSeq, channelID, channelType, content)
+        // 编辑完后主动同步消息扩展，确保聊天区 "已编辑" 标记和会话列表预览及时刷新。
+        // 不能仅依赖 syncMessageExtra CMD 推送——它可能晚于 API 返回，或不回推给发送方。
+        WKSDK.shared().chatManager.syncMessageExtras(this.channel, this.findMaxExtraVersion()).then((messageExtras) => {
+            this.updateMessageByMessageExtras(messageExtras)
+        })
+    }
+
+    // 置顶/取消置顶消息
+    async pinMessage(message: Message): Promise<void> {
+        await WKApp.conversationProvider.pinMessage(message)
+        await this.syncPinnedMessages()
+        if (message.channel.isEqual(this.channel)) {
+            WKSDK.shared().chatManager.syncMessageExtras(this.channel, this.findMaxExtraVersion()).then((messageExtras) => {
+                this.updateMessageByMessageExtras(messageExtras)
+            })
+        }
+    }
+
+    async syncPinnedMessages(): Promise<void> {
+        const result: SyncPinnedMessagesResult = await WKApp.conversationProvider.syncPinnedMessages(
+            this.channel,
+            this.findMaxPinnedVersion()
+        )
+
+        if (!result) {
+            return
+        }
+
+        const messageMap = new Map<string, Message>()
+        if (result.messages && result.messages.length > 0) {
+            for (const msg of result.messages) {
+                messageMap.set(msg.messageID, msg)
+            }
+        }
+
+        const pinnedMap = new Map<string, PinnedMessageItem>()
+        if (this.pinnedMessages && this.pinnedMessages.length > 0) {
+            for (const item of this.pinnedMessages) {
+                pinnedMap.set(item.messageID, item)
+            }
+        }
+
+        if (result.pinnedMessages && result.pinnedMessages.length > 0) {
+            for (const item of result.pinnedMessages) {
+                const prev = pinnedMap.get(item.messageID)
+                pinnedMap.set(item.messageID, {
+                    ...prev,
+                    ...item,
+                    message: messageMap.get(item.messageID) || prev?.message,
+                })
+            }
+        }
+
+        if (messageMap.size > 0) {
+            messageMap.forEach((msg, messageID) => {
+                const pinnedItem = pinnedMap.get(messageID)
+                if (pinnedItem) {
+                    pinnedItem.message = msg
+                }
+            })
+        }
+
+        this.pinnedMessages = Array.from(pinnedMap.values()).sort((a, b) => {
+            return (b.version || 0) - (a.version || 0)
+        })
+
+        const activePinnedMessages = this.getActivePinnedMessages()
+        if (this.pinnedActiveIndex < 0) {
+            this.pinnedActiveIndex = 0
+        }
+        if (activePinnedMessages.length === 0) {
+            this.pinnedActiveIndex = 0
+        } else if (this.pinnedActiveIndex >= activePinnedMessages.length) {
+            this.pinnedActiveIndex = 0
+        }
+        this.notifyListener()
+    }
+
+    findMaxPinnedVersion(): number {
+        let maxVersion = 0
+        if (this.pinnedMessages && this.pinnedMessages.length > 0) {
+            for (const item of this.pinnedMessages) {
+                if (item.version > maxVersion) {
+                    maxVersion = item.version
+                }
+            }
+        }
+        return maxVersion
+    }
+
+    getActivePinnedMessages(): PinnedMessageItem[] {
+        return this.pinnedMessages.filter((item) => item.isDeleted !== 1)
+    }
+
+    cyclePinnedMessage(): void {
+        const activePinnedMessages = this.getActivePinnedMessages()
+        if (activePinnedMessages.length <= 1) {
+            return
+        }
+        this.pinnedActiveIndex = (this.pinnedActiveIndex + 1) % activePinnedMessages.length
+        this.notifyListener()
     }
 
     // 仅仅删除本地消息
@@ -250,6 +357,32 @@ export default class ConversationVM extends ProviderListener {
             }
             i++
         }
+    }
+
+    /**
+     * 全局 ACK 监听器：不绑定组件生命周期，始终监听 SendAck。
+     * 当收到成功 ACK 时遍历所有 sendQueue 按 clientSeq 清理，
+     * 避免用户离开会话后 sendQueue 里的消息成为"幽灵"发送状态。
+     */
+    static registerGlobalAckListener() {
+        if (ConversationVM.globalAckListenerRegistered) return
+        ConversationVM.globalAckListenerRegistered = true
+        WKSDK.shared().chatManager.addMessageStatusListener((ackPacket: SendackPacket) => {
+            if (ackPacket.reasonCode !== 1) return // 只处理成功的 ACK
+            // 遍历所有频道的 sendQueue
+            ConversationVM.sendQueue.forEach((msgs, channelKey) => {
+                for (let i = msgs.length - 1; i >= 0; i--) {
+                    if (msgs[i].clientSeq === ackPacket.clientSeq) {
+                        msgs.splice(i, 1)
+                        break
+                    }
+                }
+                // 如果队列清空了则删除 key
+                if (msgs.length === 0) {
+                    ConversationVM.sendQueue.delete(channelKey)
+                }
+            })
+        })
     }
 
 
@@ -305,11 +438,21 @@ export default class ConversationVM extends ProviderListener {
             const cmdContent = message.content as CMDContent
             const param = cmdContent.param
             if (cmdContent.cmd === 'messageRevoke') { //消息撤回
-                let existMessage = this.findMessageWithMessageID(param.message_id)
+                const messageID = String(param?.message_id ?? "")
+                const revoker = String(param?.revoker ?? message.fromUID ?? "")
+                let existMessage = messageID ? this.findMessageWithMessageID(messageID) : undefined
                 if (existMessage) {
                     existMessage.revoke = true
-                    existMessage.revoker = existMessage.fromUID;
+                    existMessage.revoker = revoker || existMessage.fromUID
                     this.notifyListener()
+                } else {
+                    if (message.channel.isEqual(this.channel)) {
+                        WKSDK.shared().chatManager
+                            .syncMessageExtras(this.channel, this.findMaxExtraVersion())
+                            .then((messageExtras) => {
+                                this.updateMessageByMessageExtras(messageExtras)
+                            })
+                    }
                 }
             } else if (cmdContent.cmd === 'syncMessageExtra') { // 同步消息扩展
                 if (message.channel.isEqual(this.channel)) {
@@ -318,6 +461,13 @@ export default class ConversationVM extends ProviderListener {
                     })
                 }
 
+            } else if (cmdContent.cmd === 'syncPinnedMessage') { // 同步置顶消息
+                if (message.channel.isEqual(this.channel)) {
+                    this.syncPinnedMessages()
+                    WKSDK.shared().chatManager.syncMessageExtras(this.channel, this.findMaxExtraVersion()).then((messageExtras) => {
+                        this.updateMessageByMessageExtras(messageExtras)
+                    })
+                }
             }
         }
         WKSDK.shared().chatManager.addCMDListener(this.cmdListener)
@@ -398,6 +548,15 @@ export default class ConversationVM extends ProviderListener {
             WKSDK.shared().conversationManager.openConversation = conversation
         }
 
+        this.syncPinnedMessages()
+
+            if (this.channel.channelType === ChannelTypeGroup) {
+                this.startMessageExtraSync()
+            }
+
+        // 注册全局 ACK 监听器（仅一次），确保离开会话后 ACK 仍能清理 sendQueue
+        ConversationVM.registerGlobalAckListener()
+
         this.requestMessagesOfFirstPage(this.initLocateMessageSeq, () => {
             if (this.onFirstMessagesLoaded) {
                 this.onFirstMessagesLoaded()
@@ -408,6 +567,7 @@ export default class ConversationVM extends ProviderListener {
     }
     didUnMount(): void {
         this.markReminderDones()
+        this.stopMessageExtraSync()
         WKSDK.shared().chatManager.removeMessageListener(this.messageListener)
         WKSDK.shared().chatManager.removeMessageStatusListener(this.messageStatusListener)
         WKApp.endpointManager.removeMethod(EndpointID.clearChannelMessages)
@@ -416,6 +576,38 @@ export default class ConversationVM extends ProviderListener {
         TypingManager.shared.removeTypingListener(this.typingListener)
         WKSDK.shared().conversationManager.removeConversationListener(this.conversationListener)
 
+    }
+
+    private startMessageExtraSync() {
+        if (this.messageExtraSyncTimer) {
+            return
+        }
+        this.syncMessageExtrasOnce()
+        this.messageExtraSyncTimer = window.setInterval(() => {
+            this.syncMessageExtrasOnce()
+        }, 5000)
+    }
+
+    private stopMessageExtraSync() {
+        if (this.messageExtraSyncTimer) {
+            window.clearInterval(this.messageExtraSyncTimer)
+            this.messageExtraSyncTimer = undefined
+        }
+        this.messageExtraSyncing = false
+    }
+
+    private syncMessageExtrasOnce() {
+        if (this.messageExtraSyncing) {
+            return
+        }
+        this.messageExtraSyncing = true
+        WKSDK.shared().chatManager.syncMessageExtras(this.channel, this.findMaxExtraVersion())
+            .then((messageExtras) => {
+                this.updateMessageByMessageExtras(messageExtras)
+            })
+            .finally(() => {
+                this.messageExtraSyncing = false
+            })
     }
 
     // 加载频道信息完成
@@ -576,6 +768,10 @@ export default class ConversationVM extends ProviderListener {
 
             }
             message.reasonCode = ackPacket.reasonCode
+        } else if (ackPacket.reasonCode === 1) {
+            // 消息不在当前 messages 列表中（可能 pullupHasMore 或已切走又切回），
+            // 仍然需要从 sendQueue 中清理，避免幽灵发送状态
+            this.removeSendingMessageIfNeed(ackPacket.clientSeq, this.channel)
         }
         this.notifyListener()
     }
@@ -591,6 +787,16 @@ export default class ConversationVM extends ProviderListener {
             if (message) {
                 message.message.remoteExtra = messageExtra
                 message.resetParts()
+            }
+
+            // 如果被编辑的消息是某个会话的最后一条消息，通知会话列表刷新预览
+            if (messageExtra.isEdit) {
+                const conversation = WKSDK.shared().conversationManager.findConversation(this.channel)
+                if (conversation && conversation.lastMessage &&
+                    String(conversation.lastMessage.messageID) === String(messageExtra.messageID)) {
+                    conversation.lastMessage.remoteExtra = messageExtra
+                    WKSDK.shared().conversationManager.notifyConversationListeners(conversation, ConversationAction.update)
+                }
             }
         }
         this.notifyListener()
@@ -640,14 +846,15 @@ export default class ConversationVM extends ProviderListener {
     }
 
     // 通过messageID获取消息对象
-    findMessageWithMessageID(messageID: string): MessageWrap | undefined {
+    findMessageWithMessageID(messageID: string | number): MessageWrap | undefined {
         if (!this.messages || this.messages.length <= 0) {
             return
         }
+        const idStr = String(messageID);
         for (let i = this.messages.length - 1; i >= 0; i--) {
-            const message = this.messages[i]
-            if (message.messageID === messageID) {
-                return message
+            const message = this.messages[i];
+            if (String(message.messageID) === idStr) {
+                return message;
             }
         }
     }
@@ -1087,13 +1294,24 @@ export default class ConversationVM extends ProviderListener {
         return message
     }
 
-    // 消息去重
+    // 消息去重（保留服务端确认版本，避免 sendQueue 中旧的 Wait 状态覆盖已成功的消息）
     distinctMessages(messages: Array<MessageWrap>) {
         for (let i = 0; i < messages.length; i++) {
             for (let j = i + 1; j < messages.length; j++) {
                 if (messages[i].clientMsgNo && messages[i].clientMsgNo !== '' && messages[i].clientMsgNo === messages[j].clientMsgNo) {
-                    messages.splice(j, 1)
-                    j--;
+                    // 优先保留有 messageSeq 的版本（服务端已确认），或状态为 Normal 的版本
+                    const iConfirmed = (messages[i].messageSeq && messages[i].messageSeq > 0) || messages[i].status === MessageStatus.Normal
+                    const jConfirmed = (messages[j].messageSeq && messages[j].messageSeq > 0) || messages[j].status === MessageStatus.Normal
+                    if (!iConfirmed && jConfirmed) {
+                        // i 是旧的未确认版本，j 是服务端确认版本 → 移除 i，保留 j
+                        messages.splice(i, 1)
+                        i--
+                        break
+                    } else {
+                        // 默认移除 j（保留 i）
+                        messages.splice(j, 1)
+                        j--
+                    }
                 }
             }
         }

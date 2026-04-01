@@ -11,7 +11,7 @@ import { ConversationWrap } from "../../Service/Model";
 import WKApp, { ThemeMode } from "../../App";
 import ChannelSetting from "../../Components/ChannelSetting";
 import classNames from "classnames";
-import { Channel, ChannelInfo, WKSDK } from "wukongimjssdk";
+import { Channel, ChannelInfo, ChannelTypePerson, WKSDK } from "wukongimjssdk";
 import { ChannelInfoListener } from "wukongimjssdk";
 import { ChatMenus } from "../../App";
 import ConversationContext from "../../Components/Conversation/context";
@@ -32,6 +32,8 @@ export class ChatContentPage extends Component<
 > {
   channelInfoListener!: ChannelInfoListener;
   conversationContext!: ConversationContext;
+  lastChannelKey?: string;
+  hasRequestedChannelInfo?: boolean;
   constructor(props: any) {
     super(props);
     this.state = {
@@ -59,8 +61,23 @@ export class ChatContentPage extends Component<
     const { channel, initLocateMessageSeq } = this.props;
     const { showChannelSetting } = this.state;
     const channelInfo = WKSDK.shared().channelManager.getChannelInfo(channel);
+    const channelKey = channel.getChannelKey();
+    if (this.lastChannelKey !== channelKey) {
+      this.lastChannelKey = channelKey;
+      this.hasRequestedChannelInfo = false;
+    }
     if (!channelInfo) {
       WKSDK.shared().channelManager.fetchChannelInfo(channel);
+      this.hasRequestedChannelInfo = true;
+    } else if (
+      !this.hasRequestedChannelInfo &&
+      channel.channelType === ChannelTypePerson &&
+      !channelInfo?.orgData?.ip &&
+      !channelInfo?.orgData?.province &&
+      !channelInfo?.orgData?.city
+    ) {
+      WKSDK.shared().channelManager.fetchChannelInfo(channel);
+      this.hasRequestedChannelInfo = true;
     }
     return (
       <div
@@ -96,8 +113,21 @@ export class ChatContentPage extends Component<
                   <div className="wk-chat-conversation-header-channel-info">
                     <div className="wk-chat-conversation-header-channel-info-name">
                       {channelInfo?.orgData?.displayName}
+                      {
+                        channelInfo?.orgData?.province || channelInfo?.orgData?.city || channelInfo?.orgData?.ip ?
+                          <span style={{ fontSize: "12px", color: "#999", marginLeft: "10px", fontWeight: "normal" }}>
+                            {
+                              channelInfo?.orgData?.ip ? <span>IP: {channelInfo?.orgData?.ip}</span> : undefined
+                            }
+                            {
+                              (channelInfo?.orgData?.province || channelInfo?.orgData?.city) && channelInfo?.orgData?.ip ? <span style={{ margin: "0 5px" }}>·</span> : undefined
+                            }
+                            {
+                              channelInfo?.orgData?.province || channelInfo?.orgData?.city ? <span>所在地: {channelInfo?.orgData?.province} {channelInfo?.orgData?.city}</span> : undefined
+                            }
+                          </span> : undefined
+                      }
                     </div>
-                    <div className="wk-chat-conversation-header-channel-info-tip"></div>
                   </div>
                 </div>
               </div>
@@ -157,6 +187,7 @@ export class ChatContentPage extends Component<
             conversationContext={this.conversationContext}
             key={channel.getChannelKey()}
             channel={channel}
+            visible={showChannelSetting}
             onClose={() => {
               this.setState({
                 showChannelSetting: false,
@@ -251,6 +282,9 @@ export default class ChatPage extends Component<any> {
                         select={WKApp.shared.openChannel}
                         conversations={vm.conversations}
                         onClearMessages={this.vm.clearMessages.bind(this.vm)}
+                        onMovePinnedConversation={(fromKey, toKey) => {
+                          vm.movePinnedConversation(fromKey, toKey);
+                        }}
                         onClick={(conversation: ConversationWrap) => {
                           vm.selectedConversation = conversation;
                           WKApp.endpoints.showConversation(

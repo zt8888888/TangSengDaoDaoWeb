@@ -1,0 +1,7 @@
+FROM docker.m.daocloud.io/library/nginx:latest
+COPY docker-entrypoint.sh /docker-entrypoint2.sh
+RUN sed -i 's/\r$//' /docker-entrypoint2.sh
+COPY nginx.conf.template /
+COPY apps/web/build /usr/share/nginx/html
+ENTRYPOINT ["sh", "/docker-entrypoint2.sh"]
+CMD ["nginx","-g","daemon off;"]

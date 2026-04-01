@@ -1,0 +1,267 @@
+
+<template>
+  <div class="flex w-full h-screen">
+    <LoginLeftView />
+
+    <div class="relative flex-1">
+      <AuthTopBar />
+
+      <div class="auth-right-wrap">
+        <div class="form">
+          <h3 class="title">{{ $t('login.title') }}</h3>
+          <p class="sub-title">{{ $t('login.subTitle') }}</p>
+          <ElForm
+            ref="formRef"
+            :model="formData"
+            :rules="rules"
+            :key="formKey"
+            @keyup.enter="handleSubmit"
+            style="margin-top: 25px"
+          >
+            <ElFormItem prop="account">
+              <ElSelect v-model="formData.account" @change="setupAccount">
+                <ElOption
+                  v-for="account in accounts"
+                  :key="account.key"
+                  :label="account.label"
+                  :value="account.key"
+                >
+                  <span>{{ account.label }}</span>
+                </ElOption>
+              </ElSelect>
+            </ElFormItem>
+            <ElFormItem prop="username">
+              <ElInput
+                class="custom-height"
+                :placeholder="$t('login.placeholder.username')"
+                v-model.trim="formData.username"
+              />
+            </ElFormItem>
+            <ElFormItem prop="password">
+              <ElInput
+                class="custom-height"
+                :placeholder="$t('login.placeholder.password')"
+                v-model.trim="formData.password"
+                type="password"
+                autocomplete="off"
+                show-password
+              />
+            </ElFormItem>
+
+            
+            <div class="relative pb-5 mt-6">
+              <div
+                class="relative z-[2] overflow-hidden select-none rounded-lg border border-transparent tad-300"
+                :class="{ '!border-[#FF4E4F]': !isPassing && isClickPass }"
+              >
+                <ArtDragVerify
+                  ref="dragVerify"
+                  v-model:value="isPassing"
+                  :text="$t('login.sliderText')"
+                  textColor="var(--art-gray-700)"
+                  :successText="$t('login.sliderSuccessText')"
+                  :progressBarBg="getCssVar('--el-color-primary')"
+                  :background="isDark ? '#26272F' : '#F1F1F4'"
+                  handlerBg="var(--default-box-color)"
+                />
+              </div>
+              <p
+                class="absolute top-0 z-[1] px-px mt-2 text-xs text-[#f56c6c] tad-300"
+                :class="{ 'translate-y-10': !isPassing && isClickPass }"
+              >
+                {{ $t('login.placeholder.slider') }}
+              </p>
+            </div>
+
+            <div class="flex-cb mt-2 text-sm">
+              <ElCheckbox v-model="formData.rememberPassword">{{
+                $t('login.rememberPwd')
+              }}</ElCheckbox>
+              <RouterLink class="text-theme" :to="{ name: 'ForgetPassword' }">{{
+                $t('login.forgetPwd')
+              }}</RouterLink>
+            </div>
+
+            <div style="margin-top: 30px">
+              <ElButton
+                class="w-full custom-height"
+                type="primary"
+                @click="handleSubmit"
+                :loading="loading"
+                v-ripple
+              >
+                {{ $t('login.btnText') }}
+              </ElButton>
+            </div>
+
+          </ElForm>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts">
+  import AppConfig from '@/config'
+  import { useUserStore } from '@/store/modules/user'
+  import { getCssVar } from '@/utils/ui'
+  import { useI18n } from 'vue-i18n'
+  import { HttpError } from '@/utils/http/error'
+  import { fetchLogin } from '@/api/auth'
+  import { ElNotification, type FormInstance, type FormRules } from 'element-plus'
+  import { useSettingStore } from '@/store/modules/setting'
+
+  defineOptions({ name: 'Login' })
+
+  const settingStore = useSettingStore()
+  const { isDark } = storeToRefs(settingStore)
+  const { t, locale } = useI18n()
+  const formKey = ref(0)
+
+  watch(locale, () => {
+    formKey.value++
+  })
+
+  type AccountKey = 'super' | 'admin' | 'user'
+
+  export interface Account {
+    key: AccountKey
+    label: string
+    userName: string
+    password: string
+    roles: string[]
+  }
+
+  const isDev = import.meta.env.DEV
+  const accounts = computed<Account[]>(() => [
+    {
+      key: 'super',
+      label: t('login.roles.super'),
+      userName: isDev ? 'admin' : '',
+      password: isDev ? '' : '',
+      roles: ['R_SUPER']
+    }
+  ])
+
+  const dragVerify = ref()
+
+  const userStore = useUserStore()
+  const router = useRouter()
+  const route = useRoute()
+  const isPassing = ref(false)
+  const isClickPass = ref(false)
+
+  const systemName = AppConfig.systemInfo.name
+  const formRef = ref<FormInstance>()
+
+  const formData = reactive({
+    account: '',
+    username: '',
+    password: '',
+    rememberPassword: true
+  })
+
+  const rules = computed<FormRules>(() => ({
+    username: [{ required: true, message: t('login.placeholder.username'), trigger: 'blur' }],
+    password: [{ required: true, message: t('login.placeholder.password'), trigger: 'blur' }]
+  }))
+
+  const loading = ref(false)
+
+  onMounted(() => {
+    setupAccount('super')
+  })
+
+  const setupAccount = (key: AccountKey) => {
+    const selectedAccount = accounts.value.find((account: Account) => account.key === key)
+    formData.account = key
+    formData.username = selectedAccount?.userName ?? ''
+    formData.password = selectedAccount?.password ?? ''
+  }
+
+  const handleSubmit = async () => {
+    if (!formRef.value) return
+
+    try {
+
+      const valid = await formRef.value.validate()
+      if (!valid) return
+
+      if (!isPassing.value) {
+        isClickPass.value = true
+        return
+      }
+
+      loading.value = true
+
+      const { username, password } = formData
+
+      const loginRes = await fetchLogin({
+        username,
+        password
+      })
+
+      if (!loginRes.access_token) {
+        throw new Error('Login failed - no token received')
+      }
+
+      userStore.setToken(loginRes.access_token, loginRes.refresh_token)
+      userStore.setLoginStatus(true)
+
+      userStore.setUserInfo({
+        id: loginRes.id,
+        username: loginRes.username,
+        nickname: loginRes.nickname,
+        avatar: loginRes.avatar,
+        email: loginRes.email,
+        mobile: loginRes.mobile,
+        isSuperAdmin: false,
+        userId: loginRes.id,
+        roles: loginRes.roles.map(String),
+        userName: loginRes.username
+      })
+
+      showLoginSuccessNotice()
+
+      const redirect = route.query.redirect as string
+      router.push(redirect || '/')
+    } catch (error) {
+
+      if (error instanceof HttpError) {
+
+      } else {
+
+        console.error('[Login] Unexpected error:', error)
+      }
+    } finally {
+      loading.value = false
+      resetDragVerify()
+    }
+  }
+
+  const resetDragVerify = () => {
+    dragVerify.value.reset()
+  }
+
+  const showLoginSuccessNotice = () => {
+    setTimeout(() => {
+      ElNotification({
+        title: t('login.success.title'),
+        type: 'success',
+        duration: 2500,
+        zIndex: 10000,
+        message: `${t('login.success.message')}, ${systemName}!`
+      })
+    }, 1000)
+  }
+</script>
+
+<style scoped>
+  @import './style.css';
+</style>
+
+<style lang="scss" scoped>
+  :deep(.el-select__wrapper) {
+    height: 40px !important;
+  }
+</style>

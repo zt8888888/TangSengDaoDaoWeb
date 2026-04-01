@@ -16,6 +16,7 @@ export interface ChannelSettingProps {
     onClose?: () => void
     channel: Channel
     conversationContext:ConversationContext
+    visible?: boolean
 }
 
 export default class ChannelSetting extends Component<ChannelSettingProps> {
@@ -35,7 +36,7 @@ export default class ChannelSetting extends Component<ChannelSettingProps> {
     componentDidMount() {
     }
     render() {
-        const { onClose, channel,conversationContext } = this.props
+        const { onClose, channel,conversationContext, visible } = this.props
         return <Provider create={() => {
             this.vm = new ChannelSettingVM(channel)
             return this.vm
@@ -44,6 +45,9 @@ export default class ChannelSetting extends Component<ChannelSettingProps> {
                 vm.notifyListener()
             }
 
+            // Chat 页面用 CSS 控制显示/隐藏，这里把可见状态同步到 routeData
+            vm.routeData.visible = !!visible
+
            let  memberCount = vm.subscribers.length
 
             const channelInfo = WKSDK.shared().channelManager.getChannelInfo(channel)
@@ -51,7 +55,10 @@ export default class ChannelSetting extends Component<ChannelSettingProps> {
                 memberCount = channelInfo.orgData.member_count
             }
            
-            return <RoutePage title={ vm.channel.channelType === ChannelTypeCustomerService?"聊天信息":`聊天信息（${memberCount}）`} onClose={() => {
+            return <RoutePage
+              title={ vm.channel.channelType === ChannelTypeCustomerService?"聊天信息":`聊天信息（${memberCount}）`}
+              enableEsc={visible}
+              onClose={() => {
                 if (onClose) {
                     onClose()
                 }

@@ -50,6 +50,12 @@ export default interface ConversationContext {
      * @param content 消息内容
      */
     editMessage(messageID: String, messageSeq: number, channelID: String, channelType: number, content: String): Promise<void>
+
+    /**
+     * 置顶/取消置顶消息
+     * @param message
+     */
+    pinMessage(message: Message): Promise<void>
     /**
      * 点击头像
      * @param uid 

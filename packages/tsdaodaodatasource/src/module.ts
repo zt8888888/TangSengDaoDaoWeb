@@ -6,6 +6,9 @@ import { ConversationProvider } from "./conversation";
 import { ChannelDataSource, CommonDataSource } from "./datasource";
 import { MediaMessageUploadTask } from "./task";
 
+const channelInfoFailureBackoffMs = 15_000
+const channelInfoLastFailureAt = new Map<string, number>()
+
 export default class DataSourceModule implements IModule {
     id(): string {
         return "DataSource"
@@ -33,7 +36,56 @@ export default class DataSourceModule implements IModule {
         WKSDK.shared().config.provider.channelInfoCallback = async function (channel: Channel): Promise<ChannelInfo> {
             let channelInfo = new ChannelInfo(),
                 isUsers = channel.channelType === ChannelTypePerson;
-            const resp = await WKApp.apiClient.get(`channels/${channel.channelID}/${channel.channelType}`);
+
+            const fallbackChannelInfo = (): ChannelInfo => {
+                channelInfo.channel = channel
+                channelInfo.title = channel.channelID
+                channelInfo.mute = false
+                channelInfo.top = false
+                channelInfo.online = false
+                if (channel.channelType === ChannelTypePerson) {
+                    channelInfo.logo = `users/${channel.channelID}/avatar`
+                } else if (channel.channelType === ChannelTypeGroup) {
+                    channelInfo.logo = `groups/${channel.channelID}/avatar`
+                } else {
+                    channelInfo.logo = ""
+                }
+                channelInfo.orgData = {}
+                return channelInfo
+            }
+
+            // 兼容：部分端会产生系统占位频道(如 ____system)，业务层不一定存在该频道
+            const isSystemPlaceholderChannel = /^_{2,}system$/.test(channel.channelID);
+            if (isSystemPlaceholderChannel) {
+                channelInfo.channel = channel
+                channelInfo.title = "系统通知"
+                channelInfo.mute = false
+                channelInfo.top = false
+                channelInfo.online = false
+                channelInfo.logo = ""
+                channelInfo.orgData = { category: "system" }
+                return channelInfo
+            }
+
+            const channelKey = `${channel.channelType}:${channel.channelID}`
+            const lastFailureAt = channelInfoLastFailureAt.get(channelKey)
+            if (lastFailureAt && Date.now() - lastFailureAt < channelInfoFailureBackoffMs) {
+                return fallbackChannelInfo()
+            }
+
+            let resp: any
+            try {
+                resp = await WKApp.apiClient.get(`channels/${channel.channelID}/${channel.channelType}`);
+                channelInfoLastFailureAt.delete(channelKey)
+            } catch (e: any) {
+                channelInfoLastFailureAt.set(channelKey, Date.now())
+                console.warn("[ChannelInfo] load failed, fallback", {
+                    channelID: channel.channelID,
+                    channelType: channel.channelType,
+                    err: e,
+                })
+                return fallbackChannelInfo()
+            }
 
             const data = resp
 
@@ -64,6 +116,19 @@ export default class DataSourceModule implements IModule {
             channelInfo.orgData.be_deleted = data.be_deleted;
             channelInfo.orgData.be_blacklist = data.be_blacklist;
             channelInfo.orgData.notice = data.notice;
+            const province = data.province ?? data.extra?.province
+            const city = data.city ?? data.extra?.city
+            const ip = data.ip ?? data.extra?.ip
+            if (province) channelInfo.orgData.province = province
+            if (city) channelInfo.orgData.city = city
+            if (ip) channelInfo.orgData.ip = ip
+            if (isUsers && !ip && !province && !city) {
+                console.debug("[ChannelInfo] missing ip/province/city", {
+                    channelID: channel.channelID,
+                    channelType: channel.channelType,
+                    data,
+                })
+            }
 
             if (channel.channelType === ChannelTypePerson) {
                 channelInfo.orgData.shortNo = data.extra.short_no ?? ""

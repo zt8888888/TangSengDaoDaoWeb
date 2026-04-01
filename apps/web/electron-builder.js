@@ -1,7 +1,7 @@
 module.exports = {
-  productName: "TangSengDaoDao", //项目名
-  appId: "com.xinbida.macapp",
-  copyright: "Copyright © ShangHaiXinBiDa", //版权
+  productName: "裕民心安",
+  appId: "com.xinbida.tangsengdaodao",
+  copyright: "Copyright © 2023 裕民心安",
   directories: {
     output: "dist-ele", // 输出文件夹
   },
@@ -75,7 +75,7 @@ module.exports = {
     // installerHeaderIcon: "./build/icon.ico", // 安装时头部图标
     createDesktopShortcut: true, // 创建桌面图标
     createStartMenuShortcut: true, // 创建开始菜单图标
-    shortcutName: "唐僧叨叨", // 图标名称
+    shortcutName: "裕民心安", // 图标名称
   },
   linux: {
     target: ["AppImage", "deb"],

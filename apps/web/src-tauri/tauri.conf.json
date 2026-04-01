@@ -7,7 +7,7 @@
     "distDir": "../build"
   },
   "package": {
-    "productName": "tangsengdaodao",
+    "productName": "裕民心安",
     "version": "../package.json"
   },
   "tauri": {
@@ -58,7 +58,7 @@
         "fullscreen": false,
         "height": 800,
         "resizable": true,
-        "title": "唐僧叨叨",
+        "title": "裕民心安",
         "width": 1200
       }
     ],

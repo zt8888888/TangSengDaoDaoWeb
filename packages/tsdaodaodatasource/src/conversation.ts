@@ -1,12 +1,12 @@
-import { IConversationProvider, WKApp, SyncMessageOptions, Convert } from "@tsdaodao/base";
-import axios from "axios";
+import { IConversationProvider, WKApp, SyncMessageOptions, Convert, PinnedMessageItem, SyncPinnedMessagesResult } from "@tsdaodao/base";
 import { Conversation, Message, Channel, MessageExtra } from "wukongimjssdk";
 
 export class ConversationProvider implements IConversationProvider {
 
 
     async deleteConversation(channel: Channel): Promise<void> {
-        return axios.delete(`conversations/${channel.channelID}/${channel.channelType}`)
+        // 统一走 WKApp.apiClient，确保 baseURL/鉴权/拦截器一致
+        return WKApp.apiClient.delete(`conversations/${channel.channelID}/${channel.channelType}`)
     }
 
     // 删除消息
@@ -30,6 +30,19 @@ export class ConversationProvider implements IConversationProvider {
     }
     revokeMessage(message: Message): Promise<void> {
         return WKApp.apiClient.post(`message/revoke?channel_id=${message.channel.channelID}&channel_type=${message.channel.channelType}&message_id=${message.messageID}&client_msg_no=${message.clientMsgNo}`)
+    }
+
+    // 编辑消息
+    // 文档：POST /message/edit
+    // body: { channel_id, channel_type, message_id, content_edit }
+    editMessage(messageID: String, messageSeq: number, channelID: String, channelType: number, content: String): Promise<void> {
+        return WKApp.apiClient.post(`message/edit`, {
+            channel_id: channelID,
+            channel_type: channelType,
+            message_id: messageID,
+            message_seq: messageSeq,
+            content_edit: content,
+        })
     }
 
 
@@ -79,6 +92,52 @@ export class ConversationProvider implements IConversationProvider {
             }) 
         }
         return messageExtras
+    }
+
+    async syncPinnedMessages(channel: Channel, version: number): Promise<SyncPinnedMessagesResult> {
+        const resp = await WKApp.apiClient.post(`message/pinned/sync`, {
+            channel_id: channel.channelID,
+            channel_type: channel.channelType,
+            version: version || 0,
+        })
+
+        const pinnedMessages: PinnedMessageItem[] = []
+        const messages: Message[] = []
+        if (resp) {
+            const messageList = resp["messages"] || []
+            if (messageList && messageList.length > 0) {
+                messageList.forEach((msg: any) => {
+                    const message = Convert.toMessage(msg)
+                    messages.push(message)
+                })
+            }
+            const pinnedList = resp["pinned_messages"] || []
+            if (pinnedList && pinnedList.length > 0) {
+                pinnedList.forEach((item: any) => {
+                    pinnedMessages.push({
+                        messageID: item.message_id,
+                        messageSeq: item.message_seq,
+                        channelID: item.channel_id,
+                        channelType: item.channel_type,
+                        isDeleted: item.is_deleted,
+                        version: item.version,
+                        createdAt: item.created_at,
+                        updatedAt: item.updated_at,
+                    })
+                })
+            }
+        }
+
+        return { pinnedMessages, messages }
+    }
+
+    pinMessage(message: Message): Promise<void> {
+        return WKApp.apiClient.post(`message/pinned`, {
+            message_id: message.messageID,
+            message_seq: message.messageSeq,
+            channel_id: message.channel.channelID,
+            channel_type: message.channel.channelType,
+        })
     }
 
     clearConversationMessages(conversation: Conversation): Promise<void> {

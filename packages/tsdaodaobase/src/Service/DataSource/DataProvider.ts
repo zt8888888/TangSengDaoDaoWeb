@@ -12,6 +12,23 @@ export class SyncMessageOptions {
     }
 }
 
+export interface PinnedMessageItem {
+  messageID: string
+  messageSeq: number
+  channelID: string
+  channelType: number
+  isDeleted: number
+  version: number
+  createdAt?: string
+  updatedAt?: string
+  message?: Message
+}
+
+export interface SyncPinnedMessagesResult {
+  pinnedMessages: PinnedMessageItem[]
+  messages: Message[]
+}
+
 export interface IConversationProvider {
 
     /**
@@ -29,6 +46,19 @@ export interface IConversationProvider {
      * @param limit 
      */
     syncMessageExtras(channel: Channel, version: number, limit: number): Promise<MessageExtra[]> 
+
+    /**
+     * 同步置顶消息
+     * @param channel 频道
+     * @param version 置顶版本
+     */
+    syncPinnedMessages(channel: Channel, version: number): Promise<SyncPinnedMessagesResult>
+
+    /**
+     * 置顶/取消置顶消息
+     * @param message 消息
+     */
+    pinMessage(message: Message): Promise<void>
 
     /**
       * 撤回消息
