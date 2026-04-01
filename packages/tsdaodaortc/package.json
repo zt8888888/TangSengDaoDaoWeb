@@ -1,0 +1,15 @@
+{
+  "name": "@tsdaodao/rtc",
+  "version": "1.0.0",
+  "types": "lib/index.d.ts",
+  "main": "lib/index.js",
+  "dependencies": {
+    "@trtc/calls-uikit-react": "^4.4.5",
+    "@tsdaodao/base": "*",
+    "@types/node-forge": "^1.0.0",
+    "@types/qrcode.react": "^1.0.2",
+    "axios": "^0.25.0",
+    "keypair": "^1.0.4",
+    "qrcode.react": "^1.0.1"
+  }
+}
